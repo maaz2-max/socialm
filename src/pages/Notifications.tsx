@@ -49,8 +49,18 @@ interface Notification {
   user_id: string;
 }
 
+interface AdminNotification {
+  id: string;
+  title: string;
+  message: string;
+  timestamp: string;
+  type: string;
+  read?: boolean;
+}
+
 export function Notifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
@@ -84,6 +94,11 @@ export function Notifications() {
       } else {
         setNotifications(data || []);
       }
+
+      // Load admin notifications from localStorage
+      const storedAdminNotifications = JSON.parse(localStorage.getItem('adminNotifications') || '[]');
+      setAdminNotifications(storedAdminNotifications);
+
     } catch (error) {
       console.error('Error in fetchNotifications:', error);
       setNotifications([]);
@@ -94,7 +109,24 @@ export function Notifications() {
 
   const markAsRead = async (notificationId: string) => {
     try {
-      // Optimistic update
+      // Check if it's an admin notification
+      if (notificationId.startsWith('admin_')) {
+        const adminId = notificationId.replace('admin_', '');
+        setAdminNotifications(prev =>
+          prev.map(notif =>
+            notif.id === adminId ? { ...notif, read: true } : notif
+          )
+        );
+        
+        // Update localStorage
+        const updated = adminNotifications.map(notif =>
+          notif.id === adminId ? { ...notif, read: true } : notif
+        );
+        localStorage.setItem('adminNotifications', JSON.stringify(updated));
+        return;
+      }
+
+      // Optimistic update for regular notifications
       setNotifications(prev =>
         prev.map(notif =>
           notif.id === notificationId ? { ...notif, read: true } : notif
@@ -124,7 +156,12 @@ export function Notifications() {
     try {
       if (!currentUser) return;
 
-      // Optimistic update
+      // Mark all admin notifications as read
+      const updatedAdminNotifications = adminNotifications.map(notif => ({ ...notif, read: true }));
+      setAdminNotifications(updatedAdminNotifications);
+      localStorage.setItem('adminNotifications', JSON.stringify(updatedAdminNotifications));
+
+      // Optimistic update for regular notifications
       const originalNotifications = [...notifications];
       setNotifications(prev =>
         prev.map(notif => ({ ...notif, read: true }))
@@ -165,7 +202,11 @@ export function Notifications() {
     try {
       if (!currentUser) return;
 
-      // Optimistic update
+      // Clear admin notifications
+      setAdminNotifications([]);
+      localStorage.removeItem('adminNotifications');
+
+      // Optimistic update for regular notifications
       const originalNotifications = [...notifications];
       setNotifications([]);
       setShowClearDialog(false);
@@ -204,7 +245,21 @@ export function Notifications() {
 
   const deleteNotification = async (notificationId: string) => {
     try {
-      // Optimistic update
+      // Check if it's an admin notification
+      if (notificationId.startsWith('admin_')) {
+        const adminId = notificationId.replace('admin_', '');
+        const updated = adminNotifications.filter(notif => notif.id !== adminId);
+        setAdminNotifications(updated);
+        localStorage.setItem('adminNotifications', JSON.stringify(updated));
+        
+        toast({
+          title: 'Notification deleted',
+          description: 'The notification has been removed',
+        });
+        return;
+      }
+
+      // Optimistic update for regular notifications
       const originalNotifications = [...notifications];
       setNotifications(prev => prev.filter(notif => notif.id !== notificationId));
 
@@ -305,7 +360,7 @@ export function Notifications() {
 
     // Listen for admin broadcast toast events
     const handleAdminBroadcastToast = (event: CustomEvent) => {
-      const { title, message } = event.detail;
+      const { title, message, timestamp } = event.detail;
       
       // Show toast notification for admin broadcasts
       toast({
@@ -314,6 +369,25 @@ export function Notifications() {
         duration: 10000,
         className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900 shadow-lg',
       });
+
+      // Add to admin notifications list
+      const newAdminNotification: AdminNotification = {
+        id: Date.now().toString(),
+        title,
+        message,
+        timestamp,
+        type: 'admin_broadcast',
+        read: false
+      };
+
+      setAdminNotifications(prev => [newAdminNotification, ...prev]);
+      
+      // Update localStorage
+      const updated = [newAdminNotification, ...adminNotifications];
+      if (updated.length > 10) {
+        updated.splice(10);
+      }
+      localStorage.setItem('adminNotifications', JSON.stringify(updated));
     };
 
     window.addEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
@@ -371,7 +445,22 @@ export function Notifications() {
     }
   }, [currentUser, notificationPermission]);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  // Combine and sort all notifications
+  const allNotifications = [
+    ...adminNotifications.map(notif => ({
+      id: `admin_${notif.id}`,
+      type: notif.type,
+      content: `${notif.title}: ${notif.message}`,
+      reference_id: null,
+      read: notif.read || false,
+      created_at: notif.timestamp,
+      user_id: 'admin',
+      isAdmin: true
+    })),
+    ...notifications.map(notif => ({ ...notif, isAdmin: false }))
+  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const unreadCount = allNotifications.filter(n => !n.read).length;
 
   if (loading) {
     return (
@@ -426,7 +515,7 @@ export function Notifications() {
             <div>
               <h1 className="font-pixelated text-lg font-medium">Notifications</h1>
               <p className="font-pixelated text-xs text-muted-foreground">
-                {notifications.length} total • {unreadCount} unread • {isOnline ? 'Online' : 'Offline'}
+                {allNotifications.length} total • {unreadCount} unread • {isOnline ? 'Online' : 'Offline'}
                 {oneSignalUser.subscribed && ' • Push enabled'}
               </p>
             </div>
@@ -442,7 +531,7 @@ export function Notifications() {
               <Info className="h-4 w-4" />
             </Button>
             
-            {notifications.length > 0 && (
+            {allNotifications.length > 0 && (
               <>
                 {unreadCount > 0 && (
                   <Button
@@ -499,30 +588,30 @@ export function Notifications() {
 
         {/* Content */}
         <ScrollArea className="h-[calc(100vh-140px)] p-4 scroll-container scroll-smooth">
-          {notifications.length > 0 ? (
+          {allNotifications.length > 0 ? (
             <div className="space-y-3">
-              {notifications.map((notification) => (
+              {allNotifications.map((notification) => (
                 <Card 
                   key={notification.id} 
-                  className={`cursor-pointer transition-all duration-200 hover:shadow-md hover-scale border-l-4 ${
+                  className={`notification-card cursor-pointer transition-all duration-200 hover:shadow-md hover-scale border-l-4 ${
                     !notification.read 
-                      ? `${getNotificationColor(notification.type)} shadow-sm` 
-                      : 'border-l-muted bg-background'
+                      ? `${getNotificationColor(notification.type)} shadow-sm notification-unread` 
+                      : 'border-l-muted bg-background notification-read'
                   }`}
                   onClick={() => !notification.read && markAsRead(notification.id)}
                 >
-                  <CardContent className="p-4">
+                  <CardContent className="p-4 card-content">
                     <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 mt-1">
                         {getNotificationIcon(notification.type)}
                       </div>
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 notification-content">
                         <p className={`font-pixelated text-sm leading-relaxed ${
                           !notification.read ? 'font-medium text-foreground' : 'text-muted-foreground'
                         }`}>
                           {notification.content}
                         </p>
-                        <div className="flex items-center gap-2 mt-2">
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
                           <p className="font-pixelated text-xs text-muted-foreground">
                             {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
                           </p>
@@ -538,7 +627,7 @@ export function Notifications() {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-shrink-0">
                         {!notification.read && (
                           <Button
                             onClick={(e) => {
@@ -659,7 +748,7 @@ export function Notifications() {
                 Clear All Notifications
               </AlertDialogTitle>
               <AlertDialogDescription className="font-pixelated text-xs">
-                Are you sure you want to clear all notifications? This action cannot be undone and will remove all {notifications.length} notifications from your list.
+                Are you sure you want to clear all notifications? This action cannot be undone and will remove all {allNotifications.length} notifications from your list.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

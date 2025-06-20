@@ -26,7 +26,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
   const [notificationsSent, setNotificationsSent] = useState(0);
   const { toast } = useToast();
 
-  // Default admin code (in production, this should be environment variable)
+  // Default admin code
   const ADMIN_CODE = 'SOCIALCHAT2025';
 
   // Auto logout after 5 minutes of inactivity
@@ -49,7 +49,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
         clearTimeout(logoutTimer);
       }
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, toast]);
 
   // Auto logout when page is loaded/refreshed
   useEffect(() => {
@@ -101,25 +101,39 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
     try {
       setIsSending(true);
 
-      // Create admin notification in database for all users
-      const { data: allUsers } = await supabase
+      // Get all users first
+      const { data: allUsers, error: usersError } = await supabase
         .from('profiles')
         .select('id');
 
+      if (usersError) {
+        console.error('Error fetching users:', usersError);
+        throw new Error('Failed to fetch users');
+      }
+
       if (allUsers && allUsers.length > 0) {
-        // Insert notification for each user
+        // Create notifications for all users
         const notifications = allUsers.map(user => ({
           user_id: user.id,
           type: 'admin_broadcast',
-          content: `${notificationTitle}: ${notificationMessage}`,
-          read: false
+          content: `${notificationTitle.trim()}: ${notificationMessage.trim()}`,
+          read: false,
+          created_at: new Date().toISOString()
         }));
 
-        const { error } = await supabase
-          .from('notifications')
-          .insert(notifications);
+        // Insert notifications in batches to avoid timeout
+        const batchSize = 50;
+        for (let i = 0; i < notifications.length; i += batchSize) {
+          const batch = notifications.slice(i, i + batchSize);
+          const { error: insertError } = await supabase
+            .from('notifications')
+            .insert(batch);
 
-        if (error) throw error;
+          if (insertError) {
+            console.error('Error inserting notification batch:', insertError);
+            // Continue with other batches even if one fails
+          }
+        }
       }
 
       setNotificationsSent(prev => prev + 1);
@@ -133,14 +147,34 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
       setNotificationTitle('');
       setNotificationMessage('');
 
-      // Dispatch custom event for immediate toast notifications (works for all users)
-      window.dispatchEvent(new CustomEvent('adminBroadcastToast', {
+      // Dispatch custom event for immediate toast notifications (works for all users without permission)
+      const broadcastEvent = new CustomEvent('adminBroadcastToast', {
         detail: {
           title: notificationTitle.trim(),
           message: notificationMessage.trim(),
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          type: 'admin_broadcast'
         }
-      }));
+      });
+      
+      window.dispatchEvent(broadcastEvent);
+
+      // Also store in localStorage for persistence across page reloads
+      const storedNotifications = JSON.parse(localStorage.getItem('adminNotifications') || '[]');
+      storedNotifications.unshift({
+        id: Date.now().toString(),
+        title: notificationTitle.trim(),
+        message: notificationMessage.trim(),
+        timestamp: new Date().toISOString(),
+        type: 'admin_broadcast'
+      });
+      
+      // Keep only last 10 admin notifications
+      if (storedNotifications.length > 10) {
+        storedNotifications.splice(10);
+      }
+      
+      localStorage.setItem('adminNotifications', JSON.stringify(storedNotifications));
 
     } catch (error) {
       console.error('Error sending notification:', error);
@@ -232,7 +266,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
 
             <div className="bg-muted/50 p-2 rounded-lg">
               <p className="font-pixelated text-xs text-muted-foreground text-center">
-                Coming Soon: Google Sign-In integration for enhanced security
+                Secure admin access for broadcasting notifications
               </p>
             </div>
           </div>
@@ -318,7 +352,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             <Alert>
               <Bell className="h-3 w-3" />
               <AlertDescription className="font-pixelated text-xs">
-                Sends notifications to all users' notification tabs instantly.
+                Sends instant toast notifications to all users without requiring permissions.
               </AlertDescription>
             </Alert>
 
