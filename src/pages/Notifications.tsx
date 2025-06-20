@@ -21,8 +21,7 @@ import {
   Wifi,
   WifiOff,
   UserX,
-  Settings,
-  Megaphone
+  Settings
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -49,18 +48,8 @@ interface Notification {
   user_id: string;
 }
 
-interface AdminNotification {
-  id: string;
-  title: string;
-  message: string;
-  timestamp: string;
-  type: string;
-  read?: boolean;
-}
-
 export function Notifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
@@ -95,10 +84,6 @@ export function Notifications() {
         setNotifications(data || []);
       }
 
-      // Load admin notifications from localStorage
-      const storedAdminNotifications = JSON.parse(localStorage.getItem('adminNotifications') || '[]');
-      setAdminNotifications(storedAdminNotifications);
-
     } catch (error) {
       console.error('Error in fetchNotifications:', error);
       setNotifications([]);
@@ -109,23 +94,6 @@ export function Notifications() {
 
   const markAsRead = async (notificationId: string) => {
     try {
-      // Check if it's an admin notification
-      if (notificationId.startsWith('admin_')) {
-        const adminId = notificationId.replace('admin_', '');
-        setAdminNotifications(prev =>
-          prev.map(notif =>
-            notif.id === adminId ? { ...notif, read: true } : notif
-          )
-        );
-        
-        // Update localStorage
-        const updated = adminNotifications.map(notif =>
-          notif.id === adminId ? { ...notif, read: true } : notif
-        );
-        localStorage.setItem('adminNotifications', JSON.stringify(updated));
-        return;
-      }
-
       // Optimistic update for regular notifications
       setNotifications(prev =>
         prev.map(notif =>
@@ -155,11 +123,6 @@ export function Notifications() {
   const markAllAsRead = async () => {
     try {
       if (!currentUser) return;
-
-      // Mark all admin notifications as read
-      const updatedAdminNotifications = adminNotifications.map(notif => ({ ...notif, read: true }));
-      setAdminNotifications(updatedAdminNotifications);
-      localStorage.setItem('adminNotifications', JSON.stringify(updatedAdminNotifications));
 
       // Optimistic update for regular notifications
       const originalNotifications = [...notifications];
@@ -202,10 +165,6 @@ export function Notifications() {
     try {
       if (!currentUser) return;
 
-      // Clear admin notifications
-      setAdminNotifications([]);
-      localStorage.removeItem('adminNotifications');
-
       // Optimistic update for regular notifications
       const originalNotifications = [...notifications];
       setNotifications([]);
@@ -245,20 +204,6 @@ export function Notifications() {
 
   const deleteNotification = async (notificationId: string) => {
     try {
-      // Check if it's an admin notification
-      if (notificationId.startsWith('admin_')) {
-        const adminId = notificationId.replace('admin_', '');
-        const updated = adminNotifications.filter(notif => notif.id !== adminId);
-        setAdminNotifications(updated);
-        localStorage.setItem('adminNotifications', JSON.stringify(updated));
-        
-        toast({
-          title: 'Notification deleted',
-          description: 'The notification has been removed',
-        });
-        return;
-      }
-
       // Optimistic update for regular notifications
       const originalNotifications = [...notifications];
       setNotifications(prev => prev.filter(notif => notif.id !== notificationId));
@@ -315,8 +260,6 @@ export function Notifications() {
         return <Heart className="h-4 w-4 text-social-magenta" />;
       case 'comment':
         return <MessageSquare className="h-4 w-4 text-social-purple" />;
-      case 'admin_broadcast':
-        return <Megaphone className="h-4 w-4 text-orange-500" />;
       default:
         return <Bell className="h-4 w-4 text-muted-foreground" />;
     }
@@ -336,8 +279,6 @@ export function Notifications() {
         return 'border-l-social-magenta bg-social-magenta/5';
       case 'comment':
         return 'border-l-social-purple bg-social-purple/5';
-      case 'admin_broadcast':
-        return 'border-l-orange-500 bg-orange-50';
       default:
         return 'border-l-muted-foreground bg-muted/5';
     }
@@ -358,32 +299,6 @@ export function Notifications() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Listen for admin broadcast toast events
-    const handleAdminBroadcastToast = (event: CustomEvent) => {
-      const { title, message, timestamp } = event.detail;
-      
-      // Add to admin notifications list
-      const newAdminNotification: AdminNotification = {
-        id: Date.now().toString(),
-        title,
-        message,
-        timestamp,
-        type: 'admin_broadcast',
-        read: false
-      };
-
-      setAdminNotifications(prev => [newAdminNotification, ...prev]);
-      
-      // Update localStorage
-      const updated = [newAdminNotification, ...adminNotifications];
-      if (updated.length > 10) {
-        updated.splice(10);
-      }
-      localStorage.setItem('adminNotifications', JSON.stringify(updated));
-    };
-
-    window.addEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
-
     // Silent background sync every 30 seconds
     const syncInterval = setInterval(() => {
       if (isOnline) {
@@ -394,7 +309,6 @@ export function Notifications() {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
       clearInterval(syncInterval);
     };
   }, [isOnline, toast]);
@@ -437,22 +351,7 @@ export function Notifications() {
     }
   }, [currentUser, notificationPermission]);
 
-  // Combine and sort all notifications
-  const allNotifications = [
-    ...adminNotifications.map(notif => ({
-      id: `admin_${notif.id}`,
-      type: notif.type,
-      content: `${notif.title}: ${notif.message}`,
-      reference_id: null,
-      read: notif.read || false,
-      created_at: notif.timestamp,
-      user_id: 'admin',
-      isAdmin: true
-    })),
-    ...notifications.map(notif => ({ ...notif, isAdmin: false }))
-  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-  const unreadCount = allNotifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   if (loading) {
     return (
@@ -507,7 +406,7 @@ export function Notifications() {
             <div>
               <h1 className="font-pixelated text-lg font-medium">Notifications</h1>
               <p className="font-pixelated text-xs text-muted-foreground">
-                {allNotifications.length} total • {unreadCount} unread • {isOnline ? 'Online' : 'Offline'}
+                {notifications.length} total • {unreadCount} unread • {isOnline ? 'Online' : 'Offline'}
                 {oneSignalUser.subscribed && ' • Push enabled'}
               </p>
             </div>
@@ -523,7 +422,7 @@ export function Notifications() {
               <Info className="h-4 w-4" />
             </Button>
             
-            {allNotifications.length > 0 && (
+            {notifications.length > 0 && (
               <>
                 {unreadCount > 0 && (
                   <Button
@@ -580,9 +479,9 @@ export function Notifications() {
 
         {/* Content */}
         <ScrollArea className="h-[calc(100vh-140px)] p-4 scroll-container scroll-smooth">
-          {allNotifications.length > 0 ? (
+          {notifications.length > 0 ? (
             <div className="space-y-3">
-              {allNotifications.map((notification) => (
+              {notifications.map((notification) => (
                 <Card 
                   key={notification.id} 
                   className={`notification-card cursor-pointer transition-all duration-200 hover:shadow-md hover-scale border-l-4 ${
@@ -610,11 +509,6 @@ export function Notifications() {
                           {!notification.read && (
                             <Badge variant="secondary" className="h-4 px-1 text-xs font-pixelated">
                               New
-                            </Badge>
-                          )}
-                          {notification.type === 'admin_broadcast' && (
-                            <Badge variant="outline" className="h-4 px-1 text-xs font-pixelated border-orange-500 text-orange-600">
-                              Admin
                             </Badge>
                           )}
                         </div>
@@ -660,7 +554,7 @@ export function Notifications() {
               </div>
               <h2 className="font-pixelated text-lg font-medium mb-2">All caught up!</h2>
               <p className="font-pixelated text-sm text-muted-foreground max-w-sm leading-relaxed">
-                You don't have any notifications right now. When you receive friend requests, messages, likes, comments, or admin announcements, they'll appear here.
+                You don't have any notifications right now. When you receive friend requests, messages, likes, or comments, they'll appear here.
               </p>
               {!oneSignalUser.subscribed && (
                 <Button
@@ -706,13 +600,6 @@ export function Notifications() {
                     <p className="font-pixelated text-xs text-muted-foreground">Interactions on your posts</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-lg">
-                  <Megaphone className="h-4 w-4 text-orange-500" />
-                  <div>
-                    <p className="font-pixelated text-xs font-medium">Admin Announcements</p>
-                    <p className="font-pixelated text-xs text-muted-foreground">Important updates from SocialChat team</p>
-                  </div>
-                </div>
               </div>
               
               <div className="bg-muted/50 p-3 rounded-lg">
@@ -740,7 +627,7 @@ export function Notifications() {
                 Clear All Notifications
               </AlertDialogTitle>
               <AlertDialogDescription className="font-pixelated text-xs">
-                Are you sure you want to clear all notifications? This action cannot be undone and will remove all {allNotifications.length} notifications from your list.
+                Are you sure you want to clear all notifications? This action cannot be undone and will remove all {notifications.length} notifications from your list.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

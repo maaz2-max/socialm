@@ -9,8 +9,6 @@ import { Session } from "@supabase/supabase-js";
 import { LoadingScreen } from "@/components/ui/loading-screen";
 import { useTheme } from "@/hooks/use-theme";
 import { FirebaseNotificationProvider } from "@/components/notifications/FirebaseNotificationProvider";
-import { useToast } from "@/hooks/use-toast";
-import { NotificationService } from "@/config/firebase";
 
 // Pages
 import Index from "./pages/Index";
@@ -42,7 +40,6 @@ const App = () => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const { theme, colorTheme, setTheme, setColorTheme } = useTheme();
-  const { toast } = useToast();
   
   useEffect(() => {
     // Apply theme immediately on mount
@@ -63,58 +60,6 @@ const App = () => {
     
     document.title = "SocialChat - Connect with Friends";
   }, [theme, colorTheme, setTheme, setColorTheme]);
-
-  // Listen for Firebase admin broadcast notifications (ONLY for authenticated users)
-  useEffect(() => {
-    if (!session) return; // Only listen when user is logged in
-
-    console.log('🔄 Setting up Firebase admin notification listeners for authenticated user:', session.user.id);
-
-    // Listen for Firebase Realtime Database admin broadcasts
-    const unsubscribe = NotificationService.listenForAdminBroadcasts((notification) => {
-      console.log('🔔 Received Firebase admin broadcast:', notification);
-      
-      const { title, message, timestamp } = notification;
-      
-      // Show toast notification for authenticated users only
-      toast({
-        title: `📢 ${title}`,
-        description: message,
-        duration: 10000,
-        className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900 shadow-lg',
-      });
-
-      // Store in localStorage for notifications page
-      const storedNotifications = JSON.parse(localStorage.getItem('adminNotifications') || '[]');
-      const newNotification = {
-        id: notification.id || Date.now().toString(),
-        title,
-        message,
-        timestamp: timestamp || new Date().toISOString(),
-        type: 'admin_broadcast',
-        read: false
-      };
-      
-      storedNotifications.unshift(newNotification);
-      
-      // Keep only last 10 admin notifications
-      if (storedNotifications.length > 10) {
-        storedNotifications.splice(10);
-      }
-      
-      localStorage.setItem('adminNotifications', JSON.stringify(storedNotifications));
-
-      // Trigger custom event for notifications page
-      window.dispatchEvent(new CustomEvent('adminBroadcastToast', {
-        detail: { title, message, timestamp: timestamp || new Date().toISOString() }
-      }));
-    });
-
-    return () => {
-      console.log('🧹 Cleaning up Firebase admin notification listeners');
-      unsubscribe();
-    };
-  }, [toast, session]); // Only run when session exists
   
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
