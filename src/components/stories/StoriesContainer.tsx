@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -40,8 +39,12 @@ const StoriesContainer = React.memo(() => {
 
   const fetchStories = useCallback(async () => {
     try {
-      // First cleanup expired photos
-      await supabase.rpc('cleanup_expired_story_photos');
+      // Try to cleanup expired photos, but don't fail if function doesn't exist
+      try {
+        await supabase.rpc('cleanup_expired_story_photos');
+      } catch (error) {
+        console.warn('cleanup_expired_story_photos function not available:', error);
+      }
 
       const { data, error } = await supabase
         .from('stories')

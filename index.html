@@ -31,26 +31,43 @@
     <script>
       window.OneSignalDeferred = window.OneSignalDeferred || [];
       OneSignalDeferred.push(async function(OneSignal) {
-        await OneSignal.init({
-          appId: "679d7ff4-7abc-4969-a967-adc4b1639c1f",
-          safari_web_id: "web.onesignal.auto.679d7ff4-7abc-4969-a967-adc4b1639c1f",
-          notifyButton: {
-            enable: false, // We'll handle subscription UI ourselves
-          },
-          allowLocalhostAsSecureOrigin: true,
-        });
-        
-        // Store OneSignal instance globally for our app to use
-        window.OneSignalInstance = OneSignal;
-        
-        // Listen for subscription changes
-        OneSignal.User.PushSubscription.addEventListener('change', function(event) {
-          console.log('OneSignal subscription changed:', event);
-          // Dispatch custom event for our app to handle
-          window.dispatchEvent(new CustomEvent('oneSignalSubscriptionChanged', {
-            detail: { subscribed: event.current.optedIn }
-          }));
-        });
+        try {
+          await OneSignal.init({
+            appId: "679d7ff4-7abc-4969-a967-adc4b1639c1f",
+            safari_web_id: "web.onesignal.auto.679d7ff4-7abc-4969-a967-adc4b1639c1f",
+            notifyButton: {
+              enable: false, // We'll handle subscription UI ourselves
+            },
+            allowLocalhostAsSecureOrigin: true,
+            // Allow development domains
+            requiresUserPrivacyConsent: false,
+          });
+          
+          // Store OneSignal instance globally for our app to use
+          window.OneSignalInstance = OneSignal;
+          
+          // Listen for subscription changes
+          OneSignal.User.PushSubscription.addEventListener('change', function(event) {
+            console.log('OneSignal subscription changed:', event);
+            // Dispatch custom event for our app to handle
+            window.dispatchEvent(new CustomEvent('oneSignalSubscriptionChanged', {
+              detail: { subscribed: event.current.optedIn }
+            }));
+          });
+        } catch (error) {
+          console.warn('OneSignal initialization failed:', error);
+          // Set a fallback instance to prevent errors
+          window.OneSignalInstance = {
+            User: {
+              PushSubscription: {
+                optedIn: false,
+                addEventListener: () => {},
+                optIn: () => Promise.resolve(),
+                optOut: () => Promise.resolve()
+              }
+            }
+          };
+        }
       });
     </script>
     
