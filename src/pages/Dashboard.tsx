@@ -9,7 +9,6 @@ import { Send, Image as ImageIcon, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useEnhancedNotifications } from '@/hooks/use-enhanced-notifications';
 
 export function Dashboard() {
   const [postContent, setPostContent] = useState('');
@@ -21,9 +20,6 @@ export function Dashboard() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const postBoxRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
-
-  // Initialize enhanced notifications for real-time updates
-  useEnhancedNotifications();
 
   // Listen for scroll to top event with improved implementation
   useEffect(() => {

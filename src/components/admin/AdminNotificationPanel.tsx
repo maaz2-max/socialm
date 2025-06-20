@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Bell, Send, LogOut, Shield, Eye, EyeOff, AlertTriangle, Zap, Users, CheckCircle, Podcast as Broadcast } from 'lucide-react';
+import { Bell, Send, LogOut, Shield, Eye, EyeOff, AlertTriangle, Zap, Users, CheckCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { NotificationService } from '@/config/firebase';
@@ -277,7 +277,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="font-pixelated text-xs flex items-center gap-1">
-                  <Broadcast className="h-3 w-3 text-orange-500" />
+                  <Zap className="h-3 w-3 text-orange-500" />
                   Firebase Realtime Broadcast
                 </CardTitle>
                 <div className="flex items-center gap-1 text-muted-foreground">

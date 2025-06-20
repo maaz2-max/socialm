@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getDatabase, ref, push, onValue, off, serverTimestamp, query, orderByChild, limitToLast } from 'firebase/database';
+import { getDatabase, ref, push, onValue, off, serverTimestamp } from 'firebase/database';
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 
 const firebaseConfig = {
@@ -54,12 +54,11 @@ export const NotificationService = {
         created_at: new Date().toISOString(),
         type: 'admin_broadcast',
         sender: 'admin',
-        broadcast_id: `broadcast_${timestamp}`,
-        priority: 'high'
+        broadcast_id: `broadcast_${timestamp}` // Unique broadcast ID
       };
 
-      // Push to Firebase Realtime Database under 'admin_broadcasts' path
-      const broadcastsRef = ref(database, 'admin_broadcasts');
+      // Push to Firebase Realtime Database under 'broadcasts' path
+      const broadcastsRef = ref(database, 'broadcasts');
       const newBroadcastRef = await push(broadcastsRef, notificationData);
 
       console.log('✅ Admin broadcast sent successfully via Firebase Realtime Database with ID:', newBroadcastRef.key);
@@ -85,16 +84,14 @@ export const NotificationService = {
     try {
       console.log('🔄 Setting up Firebase Realtime Database listener for admin broadcasts...');
       
-      // Listen to the last 10 broadcasts, ordered by timestamp
-      const broadcastsRef = ref(database, 'admin_broadcasts');
-      const broadcastsQuery = query(broadcastsRef, orderByChild('created_at'), limitToLast(10));
+      const broadcastsRef = ref(database, 'broadcasts');
       
       // Track last processed broadcast to avoid duplicates
-      let lastProcessedTimestamp = localStorage.getItem('lastAdminBroadcastTimestamp') || '0';
+      let lastProcessedTimestamp = localStorage.getItem('lastBroadcastTimestamp') || '0';
       
-      const listener = onValue(broadcastsQuery, (snapshot) => {
+      const listener = onValue(broadcastsRef, (snapshot) => {
         const data = snapshot.val();
-        console.log('📡 Firebase admin broadcast data received:', data);
+        console.log('📡 Firebase broadcast data received:', data);
         
         if (data) {
           // Get all broadcasts and sort by timestamp
@@ -119,7 +116,7 @@ export const NotificationService = {
               
               // Update last processed timestamp
               lastProcessedTimestamp = broadcastTime;
-              localStorage.setItem('lastAdminBroadcastTimestamp', lastProcessedTimestamp);
+              localStorage.setItem('lastBroadcastTimestamp', lastProcessedTimestamp);
               
               // Call the callback with the new broadcast
               callback({
@@ -128,21 +125,20 @@ export const NotificationService = {
                 message: broadcast.message,
                 timestamp: broadcast.created_at,
                 type: broadcast.type,
-                broadcast_id: broadcast.broadcast_id,
-                priority: broadcast.priority
+                broadcast_id: broadcast.broadcast_id
               });
             }
           });
         }
       }, (error) => {
-        console.error('❌ Firebase admin broadcast listener error:', error);
+        console.error('❌ Firebase listener error:', error);
       });
 
-      console.log('✅ Firebase Realtime Database admin broadcast listener set up successfully');
+      console.log('✅ Firebase Realtime Database listener set up successfully');
 
       // Return cleanup function
       return () => {
-        console.log('🧹 Cleaning up Firebase admin broadcast listener');
+        console.log('🧹 Cleaning up Firebase broadcast listener');
         off(broadcastsRef, 'value', listener);
       };
     } catch (error) {
