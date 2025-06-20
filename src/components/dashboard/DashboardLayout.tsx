@@ -3,7 +3,7 @@ import { MobileHeader } from './MobileHeader';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Users, Bell, MessageSquare, User, Hash } from 'lucide-react';
+import { Home, Users, Bell, MessageSquare, User } from 'lucide-react';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -18,7 +18,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const getRouteFromPath = (path: string) => {
     if (path === '/') return 'dashboard';
     if (path.startsWith('/profile/')) return 'profile';
-    if (path.startsWith('/communities')) return 'communities';
     return path.split('/')[1];
   };
 
@@ -76,13 +75,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     className={`nav-tab ${currentRoute === 'dashboard' ? 'active' : ''} font-pixelated p-2`}
                   >
                     <Home className="h-4 w-4" />
-                  </TabsTrigger>
-                  <TabsTrigger 
-                    value="communities" 
-                    onClick={() => handleTabClick('communities')}
-                    className={`nav-tab ${currentRoute === 'communities' ? 'active' : ''} font-pixelated p-2`}
-                  >
-                    <Hash className="h-4 w-4" />
                   </TabsTrigger>
                   <TabsTrigger 
                     value="friends" 

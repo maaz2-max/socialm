@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -22,7 +23,6 @@ interface Story {
     username: string;
     avatar: string | null;
   };
-  viewed_by_user?: boolean;
 }
 
 const StoriesContainer = React.memo(() => {
@@ -36,7 +36,6 @@ const StoriesContainer = React.memo(() => {
     showConfirm: boolean;
   }>({ show: false, user: null, showConfirm: false });
   const [loading, setLoading] = useState(true);
-  const [viewedStories, setViewedStories] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
   const fetchStories = useCallback(async () => {
@@ -67,29 +66,7 @@ const StoriesContainer = React.memo(() => {
         return acc;
       }, {});
 
-      const storiesWithViews = Object.values(groupedStories || {});
-
-      // Check which stories have been viewed by current user
-      if (currentUser && storiesWithViews.length > 0) {
-        const { data: viewData } = await supabase
-          .from('story_views')
-          .select('story_id')
-          .eq('viewer_id', currentUser.id)
-          .in('story_id', storiesWithViews.map(s => s.id));
-
-        const viewedStoryIds = new Set(viewData?.map(v => v.story_id) || []);
-        setViewedStories(viewedStoryIds);
-
-        // Add viewed status to stories
-        const storiesWithViewStatus = storiesWithViews.map(story => ({
-          ...story,
-          viewed_by_user: viewedStoryIds.has(story.id)
-        }));
-
-        setStories(storiesWithViewStatus);
-      } else {
-        setStories(storiesWithViews);
-      }
+      setStories(Object.values(groupedStories || {}));
     } catch (error) {
       console.error('Error fetching stories:', error);
       toast({
@@ -100,7 +77,7 @@ const StoriesContainer = React.memo(() => {
     } finally {
       setLoading(false);
     }
-  }, [toast, currentUser]);
+  }, [toast]);
 
   const getCurrentUser = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -117,75 +94,50 @@ const StoriesContainer = React.memo(() => {
 
   useEffect(() => {
     getCurrentUser();
-  }, [getCurrentUser]);
-
-  useEffect(() => {
-    if (currentUser) {
-      fetchStories();
-      
-      // Set up realtime subscription for stories with more granular updates
-      const channel = supabase
-        .channel('stories-realtime')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'stories'
-          },
-          (payload) => {
-            console.log('Story change detected:', payload);
-            // Optimistic update for better performance
-            if (payload.eventType === 'INSERT') {
-              fetchStories();
-            } else if (payload.eventType === 'UPDATE') {
-              setStories(prevStories => 
-                prevStories.map(story => 
-                  story.id === payload.new.id 
-                    ? { ...story, ...payload.new }
-                    : story
-                )
-              );
-            } else if (payload.eventType === 'DELETE') {
-              setStories(prevStories => 
-                prevStories.filter(story => story.id !== payload.old.id)
-              );
-            }
+    fetchStories();
+    
+    // Set up realtime subscription for stories with more granular updates
+    const channel = supabase
+      .channel('stories-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'stories'
+        },
+        (payload) => {
+          console.log('Story change detected:', payload);
+          // Optimistic update for better performance
+          if (payload.eventType === 'INSERT') {
+            fetchStories();
+          } else if (payload.eventType === 'UPDATE') {
+            setStories(prevStories => 
+              prevStories.map(story => 
+                story.id === payload.new.id 
+                  ? { ...story, ...payload.new }
+                  : story
+              )
+            );
+          } else if (payload.eventType === 'DELETE') {
+            setStories(prevStories => 
+              prevStories.filter(story => story.id !== payload.old.id)
+            );
           }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'story_views'
-          },
-          (payload) => {
-            if (payload.eventType === 'INSERT' && payload.new.viewer_id === currentUser.id) {
-              setViewedStories(prev => new Set([...prev, payload.new.story_id]));
-              setStories(prevStories =>
-                prevStories.map(story =>
-                  story.id === payload.new.story_id
-                    ? { ...story, viewed_by_user: true }
-                    : story
-                )
-              );
-            }
-          }
-        )
-        .subscribe();
+        }
+      )
+      .subscribe();
 
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
-  }, [currentUser, fetchStories]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [getCurrentUser, fetchStories]);
 
   const handleStoryClick = useCallback(async (story: Story) => {
     setSelectedStory(story);
     
     // Mark story as viewed using the new function
-    if (story.user_id !== currentUser?.id && !story.viewed_by_user) {
+    if (story.user_id !== currentUser?.id) {
       try {
         const { data, error } = await supabase.rpc('increment_story_views', {
           story_uuid: story.id,
@@ -195,12 +147,11 @@ const StoriesContainer = React.memo(() => {
         if (error) {
           console.error('Error tracking story view:', error);
         } else {
-          // Update local state immediately
-          setViewedStories(prev => new Set([...prev, story.id]));
+          // Update local state with new view count
           setStories(prevStories => 
             prevStories.map(s => 
               s.id === story.id 
-                ? { ...s, views_count: data || s.views_count + 1, viewed_by_user: true }
+                ? { ...s, views_count: data || s.views_count + 1 }
                 : s
             )
           );
@@ -227,32 +178,6 @@ const StoriesContainer = React.memo(() => {
     fetchStories();
   }, [fetchStories]);
 
-  // Get theme color for story borders based on current theme
-  const getThemeColor = () => {
-    const root = document.documentElement;
-    
-    // Check for theme color classes
-    if (root.classList.contains('theme-blue')) {
-      return '#3b82f6'; // blue-500
-    } else if (root.classList.contains('theme-red')) {
-      return '#ef4444'; // red-500
-    } else if (root.classList.contains('theme-orange')) {
-      return '#f97316'; // orange-500
-    } else if (root.classList.contains('theme-purple')) {
-      return '#a855f7'; // purple-500
-    } else {
-      // Default green theme
-      return 'hsl(142, 76%, 36%)'; // social-green
-    }
-  };
-
-  const themeColor = getThemeColor();
-
-  // Create gradient for unseen stories
-  const createStoryGradient = (color: string) => {
-    return `linear-gradient(45deg, ${color}, ${color}dd, ${color}aa)`;
-  };
-
   if (loading) {
     return (
       <div className="flex gap-2 p-3 overflow-x-auto">
@@ -272,33 +197,18 @@ const StoriesContainer = React.memo(() => {
         {/* Add Story Button */}
         <div className="flex flex-col items-center gap-1 min-w-[60px]">
           <div className="relative">
-            <Avatar 
-              className={`w-12 h-12 cursor-pointer transition-all duration-200 hover:scale-105 ${
-                userStory 
-                  ? userStory.viewed_by_user 
-                    ? 'border-2 border-gray-300' 
-                    : 'border-0 p-0.5'
-                  : 'border-2 border-dashed border-social-green hover:border-social-light-green'
-              }`}
-              style={{
-                background: userStory && !userStory.viewed_by_user 
-                  ? createStoryGradient(themeColor)
-                  : undefined
-              }}
-            >
-              <div className={`${userStory && !userStory.viewed_by_user ? 'border-2 border-white rounded-full' : ''} w-full h-full`}>
-                {currentUser?.avatar ? (
-                  <AvatarImage 
-                    src={currentUser.avatar} 
-                    alt={currentUser.name} 
-                    className={userStory && !userStory.viewed_by_user ? 'rounded-full' : ''}
-                  />
-                ) : (
-                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
-                    {currentUser?.name?.substring(0, 2).toUpperCase() || 'U'}
-                  </AvatarFallback>
-                )}
-              </div>
+            <Avatar className={`w-12 h-12 border-2 cursor-pointer transition-all duration-200 ${
+              userStory 
+                ? 'border-social-green hover:border-social-light-green hover:scale-105' 
+                : 'border-dashed border-social-green hover:border-social-light-green hover:scale-105'
+            }`}>
+              {currentUser?.avatar ? (
+                <AvatarImage src={currentUser.avatar} alt={currentUser.name} />
+              ) : (
+                <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                  {currentUser?.name?.substring(0, 2).toUpperCase() || 'U'}
+                </AvatarFallback>
+              )}
             </Avatar>
             <Button
               size="icon"
@@ -320,32 +230,16 @@ const StoriesContainer = React.memo(() => {
             onClick={() => handleStoryClick(userStory)}
           >
             <div className="relative">
-              <Avatar 
-                className={`w-12 h-12 transition-all duration-200 group-hover:scale-105 ${
-                  userStory.viewed_by_user 
-                    ? 'border-2 border-gray-300' 
-                    : 'border-0 p-0.5'
-                }`}
-                style={{
-                  background: !userStory.viewed_by_user 
-                    ? createStoryGradient(themeColor)
-                    : undefined
-                }}
-              >
-                <div className={`${!userStory.viewed_by_user ? 'border-2 border-white rounded-full' : ''} w-full h-full`}>
-                  {userStory.profiles.avatar ? (
-                    <AvatarImage 
-                      src={userStory.profiles.avatar} 
-                      alt={userStory.profiles.name}
-                      className={!userStory.viewed_by_user ? 'rounded-full' : ''}
-                    />
-                  ) : (
-                    <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
-                      {userStory.profiles.name.substring(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  )}
-                </div>
+              <Avatar className="w-12 h-12 border-2 border-social-green hover:border-social-light-green transition-all duration-200 group-hover:scale-105">
+                {userStory.profiles.avatar ? (
+                  <AvatarImage src={userStory.profiles.avatar} alt={userStory.profiles.name} />
+                ) : (
+                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                    {userStory.profiles.name.substring(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                )}
               </Avatar>
+              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-social-green to-social-blue opacity-20" />
             </div>
             <span className="text-xs font-pixelated text-center truncate max-w-[60px]">
               You
@@ -353,7 +247,7 @@ const StoriesContainer = React.memo(() => {
           </div>
         )}
 
-        {/* Other Stories with Instagram-style borders */}
+        {/* Other Stories */}
         {otherStories.map((story) => (
           <div
             key={story.id}
@@ -361,32 +255,16 @@ const StoriesContainer = React.memo(() => {
             onClick={() => handleStoryClick(story)}
           >
             <div className="relative">
-              <Avatar 
-                className={`w-12 h-12 transition-all duration-200 group-hover:scale-105 ${
-                  story.viewed_by_user 
-                    ? 'border-2 border-gray-300' 
-                    : 'border-0 p-0.5'
-                }`}
-                style={{
-                  background: !story.viewed_by_user 
-                    ? createStoryGradient(themeColor)
-                    : undefined
-                }}
-              >
-                <div className={`${!story.viewed_by_user ? 'border-2 border-white rounded-full' : ''} w-full h-full`}>
-                  {story.profiles.avatar ? (
-                    <AvatarImage 
-                      src={story.profiles.avatar} 
-                      alt={story.profiles.name}
-                      className={!story.viewed_by_user ? 'rounded-full' : ''}
-                    />
-                  ) : (
-                    <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
-                      {story.profiles.name.substring(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  )}
-                </div>
+              <Avatar className="w-12 h-12 border-2 border-social-green hover:border-social-light-green transition-all duration-200 group-hover:scale-105">
+                {story.profiles.avatar ? (
+                  <AvatarImage src={story.profiles.avatar} alt={story.profiles.name} />
+                ) : (
+                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                    {story.profiles.name.substring(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                )}
               </Avatar>
+              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-social-green to-social-blue opacity-20" />
             </div>
             <span className="text-xs font-pixelated text-center truncate max-w-[60px]">
               {story.profiles.name.split(' ')[0]}

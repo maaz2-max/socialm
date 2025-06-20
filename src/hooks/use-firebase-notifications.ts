@@ -17,26 +17,24 @@ export function useFirebaseNotifications() {
   });
   const { toast } = useToast();
 
-  // Initialize notifications (using browser notifications instead of Firebase)
+  // Initialize Firebase notifications (disabled)
   const initialize = useCallback(async () => {
     try {
-      const isSupported = 'Notification' in window;
-      const permission = isSupported ? Notification.permission : 'denied';
+      const isSupported = false; // Disabled Firebase
       
       setState(prev => ({
         ...prev,
-        isSupported,
-        permission,
+        isSupported: false,
         isInitialized: true
       }));
 
     } catch (error) {
-      console.error('Notification initialization error:', error);
+      console.error('Firebase notifications disabled:', error);
       setState(prev => ({ ...prev, isInitialized: true }));
     }
   }, []);
 
-  // Request notification permission (browser notifications)
+  // Request notification permission (fallback to browser notifications)
   const requestPermission = useCallback(async () => {
     try {
       if ('Notification' in window) {
