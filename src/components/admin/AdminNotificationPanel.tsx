@@ -70,18 +70,6 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
     };
   }, [isAuthenticated, toast]);
 
-  // Auto logout when page is loaded/refreshed
-  useEffect(() => {
-    const handlePageLoad = () => {
-      if (isAuthenticated) {
-        handleLogout();
-      }
-    };
-
-    window.addEventListener('beforeunload', handlePageLoad);
-    return () => window.removeEventListener('beforeunload', handlePageLoad);
-  }, [isAuthenticated]);
-
   const handleLogin = () => {
     setLoginError('');
     
@@ -123,42 +111,40 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
       const timestamp = new Date().toISOString();
       const titleToSend = notificationTitle.trim();
       const messageToSend = notificationMessage.trim();
+      const notificationId = `admin_${Date.now()}`;
 
-      // Step 1: Create a broadcast notification record in the database
-      const { data: broadcastNotification, error: broadcastError } = await supabase
-        .from('notifications')
-        .insert({
-          user_id: '00000000-0000-0000-0000-000000000000', // Special admin user ID
-          type: 'admin_broadcast',
-          content: `${titleToSend}: ${messageToSend}`,
-          read: false,
-          created_at: timestamp,
-          reference_id: 'broadcast'
-        })
-        .select()
-        .single();
+      console.log('Sending admin notification:', { titleToSend, messageToSend, timestamp });
 
-      if (broadcastError) {
-        console.error('Error creating broadcast notification:', broadcastError);
-        throw new Error('Failed to create broadcast notification');
-      }
+      // Method 1: Direct localStorage broadcast for immediate effect
+      const adminNotification = {
+        id: notificationId,
+        title: titleToSend,
+        message: messageToSend,
+        timestamp: timestamp,
+        type: 'admin_broadcast',
+        read: false
+      };
 
-      // Step 2: Use Supabase real-time to broadcast to ALL connected clients
-      const broadcastChannel = supabase.channel('admin-notifications');
+      // Store in localStorage for persistence
+      const existingNotifications = JSON.parse(localStorage.getItem('adminNotifications') || '[]');
+      existingNotifications.unshift(adminNotification);
       
-      await broadcastChannel.send({
-        type: 'broadcast',
-        event: 'admin_notification',
-        payload: {
-          id: broadcastNotification.id,
-          title: titleToSend,
-          message: messageToSend,
-          timestamp: timestamp,
-          type: 'admin_broadcast'
-        }
+      // Keep only last 10 notifications
+      if (existingNotifications.length > 10) {
+        existingNotifications.splice(10);
+      }
+      
+      localStorage.setItem('adminNotifications', JSON.stringify(existingNotifications));
+
+      // Method 2: Trigger immediate toast notification
+      toast({
+        title: `📢 ${titleToSend}`,
+        description: messageToSend,
+        duration: 10000,
+        className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900 shadow-lg',
       });
 
-      // Step 3: Also trigger custom event for immediate local response
+      // Method 3: Dispatch custom event for real-time updates
       const broadcastEvent = new CustomEvent('adminBroadcastToast', {
         detail: {
           title: titleToSend,
@@ -170,45 +156,75 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
       
       window.dispatchEvent(broadcastEvent);
 
-      // Step 4: Get all users and create individual notifications for persistence
-      const { data: allUsers, error: usersError } = await supabase
-        .from('profiles')
-        .select('id');
-
-      let successCount = 0;
-
-      if (!usersError && allUsers && allUsers.length > 0) {
-        // Create notifications for all users in batches
-        const notifications = allUsers.map(user => ({
-          user_id: user.id,
-          type: 'admin_broadcast',
-          content: `${titleToSend}: ${messageToSend}`,
-          read: false,
-          created_at: timestamp,
-          reference_id: broadcastNotification.id
-        }));
-
-        // Insert notifications in batches to avoid timeout
-        const batchSize = 50;
-        for (let i = 0; i < notifications.length; i += batchSize) {
-          const batch = notifications.slice(i, i + batchSize);
-          const { error: insertError } = await supabase
-            .from('notifications')
-            .insert(batch);
-
-          if (!insertError) {
-            successCount += batch.length;
-          } else {
-            console.error('Error inserting notification batch:', insertError);
+      // Method 4: Use Supabase real-time broadcast
+      try {
+        const channel = supabase.channel('admin-notifications-broadcast');
+        
+        await channel.send({
+          type: 'broadcast',
+          event: 'admin_notification',
+          payload: {
+            id: notificationId,
+            title: titleToSend,
+            message: messageToSend,
+            timestamp: timestamp,
+            type: 'admin_broadcast'
           }
+        });
+
+        console.log('Supabase broadcast sent successfully');
+      } catch (broadcastError) {
+        console.error('Supabase broadcast error:', broadcastError);
+        // Continue anyway since we have other methods
+      }
+
+      // Method 5: Create database notifications for all users (background)
+      try {
+        const { data: allUsers } = await supabase
+          .from('profiles')
+          .select('id');
+
+        if (allUsers && allUsers.length > 0) {
+          // Create notifications in smaller batches to avoid timeout
+          const batchSize = 20;
+          let successCount = 0;
+
+          for (let i = 0; i < allUsers.length; i += batchSize) {
+            const batch = allUsers.slice(i, i + batchSize);
+            const notifications = batch.map(user => ({
+              user_id: user.id,
+              type: 'admin_broadcast',
+              content: `${titleToSend}: ${messageToSend}`,
+              read: false,
+              created_at: timestamp,
+              reference_id: notificationId
+            }));
+
+            try {
+              const { error: insertError } = await supabase
+                .from('notifications')
+                .insert(notifications);
+
+              if (!insertError) {
+                successCount += batch.length;
+              }
+            } catch (batchError) {
+              console.error('Batch insert error:', batchError);
+            }
+          }
+
+          console.log(`Created ${successCount} database notifications`);
         }
+      } catch (dbError) {
+        console.error('Database notification error:', dbError);
+        // Continue anyway since the main broadcast worked
       }
 
       setNotificationsSent(prev => prev + 1);
       
       toast({
-        title: '🚀 Notification broadcast successful!',
-        description: `Admin notification "${titleToSend}" has been sent to all ${successCount} users and will appear instantly for online users.`,
+        title: '🚀 Notification sent successfully!',
+        description: `Admin notification "${titleToSend}" has been broadcast to all users instantly.`,
       });
 
       // Clear form

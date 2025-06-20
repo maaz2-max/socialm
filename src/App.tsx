@@ -67,8 +67,12 @@ const App = () => {
   useEffect(() => {
     if (!session) return; // Only listen when user is logged in
 
+    console.log('Setting up admin notification listeners for authenticated user');
+
     const handleAdminBroadcastToast = (event: CustomEvent) => {
       const { title, message } = event.detail;
+      
+      console.log('Received admin broadcast toast:', { title, message });
       
       // Show toast notification for authenticated users only
       toast({
@@ -80,10 +84,10 @@ const App = () => {
     };
 
     // Listen for Supabase real-time admin broadcasts
-    const adminChannel = supabase.channel('admin-notifications');
+    const adminChannel = supabase.channel('admin-notifications-broadcast');
     
     adminChannel.on('broadcast', { event: 'admin_notification' }, (payload) => {
-      console.log('Received admin broadcast:', payload);
+      console.log('Received Supabase admin broadcast:', payload);
       
       const { title, message, timestamp } = payload.payload;
       
@@ -98,7 +102,7 @@ const App = () => {
       // Store in localStorage for notifications page
       const storedNotifications = JSON.parse(localStorage.getItem('adminNotifications') || '[]');
       const newNotification = {
-        id: Date.now().toString(),
+        id: payload.payload.id || Date.now().toString(),
         title,
         message,
         timestamp,
@@ -121,12 +125,15 @@ const App = () => {
       }));
     });
 
-    adminChannel.subscribe();
+    adminChannel.subscribe((status) => {
+      console.log('Admin channel subscription status:', status);
+    });
 
     // Also listen for custom events (fallback)
     window.addEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
 
     return () => {
+      console.log('Cleaning up admin notification listeners');
       supabase.removeChannel(adminChannel);
       window.removeEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
     };
