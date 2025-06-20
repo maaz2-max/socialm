@@ -21,7 +21,8 @@ import {
   Wifi,
   WifiOff,
   UserX,
-  Settings
+  Settings,
+  Megaphone
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -79,17 +80,7 @@ export function Notifications() {
 
       if (error) {
         console.error('Error fetching notifications:', error);
-        // Create some sample notifications if none exist
-        await createSampleNotifications(user.id);
-        // Try fetching again
-        const { data: retryData } = await supabase
-          .from('notifications')
-          .select('*')
-          .eq('user_id', user.id)
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false });
-        
-        setNotifications(retryData || []);
+        setNotifications([]);
       } else {
         setNotifications(data || []);
       }
@@ -98,39 +89,6 @@ export function Notifications() {
       setNotifications([]);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const createSampleNotifications = async (userId: string) => {
-    try {
-      const sampleNotifications = [
-        {
-          user_id: userId,
-          type: 'like',
-          content: 'Owais liked your post',
-          read: false
-        },
-        {
-          user_id: userId,
-          type: 'comment',
-          content: 'raafi jamal commented on your post',
-          read: false
-        },
-        {
-          user_id: userId,
-          type: 'like',
-          content: 'Roohi Fida liked your post',
-          read: false
-        }
-      ];
-
-      for (const notification of sampleNotifications) {
-        await supabase
-          .from('notifications')
-          .insert(notification);
-      }
-    } catch (error) {
-      console.log('Sample notifications creation handled');
     }
   };
 
@@ -302,6 +260,8 @@ export function Notifications() {
         return <Heart className="h-4 w-4 text-social-magenta" />;
       case 'comment':
         return <MessageSquare className="h-4 w-4 text-social-purple" />;
+      case 'admin_broadcast':
+        return <Megaphone className="h-4 w-4 text-orange-500" />;
       default:
         return <Bell className="h-4 w-4 text-muted-foreground" />;
     }
@@ -321,6 +281,8 @@ export function Notifications() {
         return 'border-l-social-magenta bg-social-magenta/5';
       case 'comment':
         return 'border-l-social-purple bg-social-purple/5';
+      case 'admin_broadcast':
+        return 'border-l-orange-500 bg-orange-50';
       default:
         return 'border-l-muted-foreground bg-muted/5';
     }
@@ -341,6 +303,21 @@ export function Notifications() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
+    // Listen for admin broadcast toast events
+    const handleAdminBroadcastToast = (event: CustomEvent) => {
+      const { title, message } = event.detail;
+      
+      // Show toast notification for admin broadcasts
+      toast({
+        title: `📢 ${title}`,
+        description: message,
+        duration: 10000,
+        className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900 shadow-lg',
+      });
+    };
+
+    window.addEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
+
     // Silent background sync every 30 seconds
     const syncInterval = setInterval(() => {
       if (isOnline) {
@@ -351,9 +328,10 @@ export function Notifications() {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
       clearInterval(syncInterval);
     };
-  }, [isOnline]);
+  }, [isOnline, toast]);
 
   useEffect(() => {
     if (currentUser) {
@@ -553,6 +531,11 @@ export function Notifications() {
                               New
                             </Badge>
                           )}
+                          {notification.type === 'admin_broadcast' && (
+                            <Badge variant="outline" className="h-4 px-1 text-xs font-pixelated border-orange-500 text-orange-600">
+                              Admin
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
@@ -596,7 +579,7 @@ export function Notifications() {
               </div>
               <h2 className="font-pixelated text-lg font-medium mb-2">All caught up!</h2>
               <p className="font-pixelated text-sm text-muted-foreground max-w-sm leading-relaxed">
-                You don't have any notifications right now. When you receive friend requests, messages, likes, or comments, they'll appear here.
+                You don't have any notifications right now. When you receive friend requests, messages, likes, comments, or admin announcements, they'll appear here.
               </p>
               {!oneSignalUser.subscribed && (
                 <Button
@@ -616,7 +599,7 @@ export function Notifications() {
             <DialogHeader>
               <DialogTitle className="font-pixelated text-lg social-gradient bg-clip-text text-transparent flex items-center gap-2">
                 <Bell className="h-5 w-5" />
-                Push Notifications
+                Notification Types
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
@@ -642,11 +625,18 @@ export function Notifications() {
                     <p className="font-pixelated text-xs text-muted-foreground">Interactions on your posts</p>
                   </div>
                 </div>
+                <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-lg">
+                  <Megaphone className="h-4 w-4 text-orange-500" />
+                  <div>
+                    <p className="font-pixelated text-xs font-medium">Admin Announcements</p>
+                    <p className="font-pixelated text-xs text-muted-foreground">Important updates from SocialChat team</p>
+                  </div>
+                </div>
               </div>
               
               <div className="bg-muted/50 p-3 rounded-lg">
                 <p className="font-pixelated text-xs text-muted-foreground leading-relaxed">
-                  <strong>OneSignal Push Notifications:</strong> Get instant alerts on all devices and browsers, including macOS Safari!
+                  <strong>Push Notifications:</strong> Get instant alerts on all devices and browsers, including macOS Safari!
                 </p>
               </div>
               

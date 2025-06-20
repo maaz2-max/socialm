@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Bell, Send, LogOut, Shield, Eye, EyeOff, AlertTriangle, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { NotificationService } from '@/config/firebase';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AdminNotificationPanelProps {
   open: boolean;
@@ -17,9 +17,8 @@ interface AdminNotificationPanelProps {
 
 export function AdminNotificationPanel({ open, onOpenChange }: AdminNotificationPanelProps) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [adminCode, setAdminCode] = useState('');
+  const [showCode, setShowCode] = useState(false);
   const [notificationTitle, setNotificationTitle] = useState('');
   const [notificationMessage, setNotificationMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -27,9 +26,8 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
   const [notificationsSent, setNotificationsSent] = useState(0);
   const { toast } = useToast();
 
-  // Default admin credentials
-  const ADMIN_USERNAME = 'admin';
-  const ADMIN_PASSWORD = 'socialchat2025';
+  // Default admin code (in production, this should be environment variable)
+  const ADMIN_CODE = 'SOCIALCHAT2025';
 
   // Auto logout after 5 minutes of inactivity
   useEffect(() => {
@@ -68,24 +66,22 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
   const handleLogin = () => {
     setLoginError('');
     
-    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+    if (adminCode === ADMIN_CODE) {
       setIsAuthenticated(true);
-      setUsername('');
-      setPassword('');
+      setAdminCode('');
       toast({
         title: 'Admin access granted',
-        description: 'You can now send push notifications to all users.',
+        description: 'You can now send notifications to all users.',
       });
     } else {
-      setLoginError('Invalid credentials. Please try again.');
-      setPassword('');
+      setLoginError('Invalid admin code. Please try again.');
+      setAdminCode('');
     }
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
-    setUsername('');
-    setPassword('');
+    setAdminCode('');
     setNotificationTitle('');
     setNotificationMessage('');
     setLoginError('');
@@ -105,79 +101,53 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
     try {
       setIsSending(true);
 
-      // Initialize Firebase notification service
-      await NotificationService.initialize();
+      // Create admin notification in database for all users
+      const { data: allUsers } = await supabase
+        .from('profiles')
+        .select('id');
 
-      // Send notification to all users
-      const result = await NotificationService.sendNotificationToUser(
-        'all-users', // Special identifier for broadcast
-        notificationTitle.trim(),
-        notificationMessage.trim(),
-        {
+      if (allUsers && allUsers.length > 0) {
+        // Insert notification for each user
+        const notifications = allUsers.map(user => ({
+          user_id: user.id,
           type: 'admin_broadcast',
-          timestamp: new Date().toISOString(),
-          priority: 'high',
-          broadcast: true
-        }
-      );
-
-      if (result.success) {
-        setNotificationsSent(prev => prev + 1);
-        
-        toast({
-          title: '🚀 Notification sent!',
-          description: `Push notification "${notificationTitle}" has been broadcast to all users.`,
-        });
-
-        // Clear form
-        setNotificationTitle('');
-        setNotificationMessage('');
-
-        // Send to service worker for background notifications
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.ready.then(registration => {
-            registration.active?.postMessage({
-              type: 'ADMIN_BROADCAST',
-              title: notificationTitle.trim(),
-              body: notificationMessage.trim(),
-              data: {
-                type: 'admin_broadcast',
-                timestamp: new Date().toISOString(),
-                priority: 'high'
-              }
-            });
-          });
-        }
-
-        // Dispatch custom event for in-page toast notifications (for ALL users)
-        window.dispatchEvent(new CustomEvent('adminBroadcastToast', {
-          detail: {
-            title: notificationTitle.trim(),
-            message: notificationMessage.trim(),
-            timestamp: new Date().toISOString()
-          }
+          content: `${notificationTitle}: ${notificationMessage}`,
+          read: false
         }));
 
-        // Show preview notification for admin
-        if ('Notification' in window && Notification.permission === 'granted') {
-          setTimeout(() => {
-            new Notification(`📢 ${notificationTitle}`, {
-              body: notificationMessage,
-              icon: '/lovable-uploads/d215e62c-d97d-4600-a98e-68acbeba47d0.png',
-              tag: 'admin-preview',
-              requireInteraction: false
-            });
-          }, 1000);
-        }
-      } else {
-        throw new Error(result.error || 'Failed to send notification');
+        const { error } = await supabase
+          .from('notifications')
+          .insert(notifications);
+
+        if (error) throw error;
       }
+
+      setNotificationsSent(prev => prev + 1);
+      
+      toast({
+        title: '🚀 Notification sent!',
+        description: `Admin notification "${notificationTitle}" has been broadcast to all users.`,
+      });
+
+      // Clear form
+      setNotificationTitle('');
+      setNotificationMessage('');
+
+      // Dispatch custom event for immediate toast notifications (works for all users)
+      window.dispatchEvent(new CustomEvent('adminBroadcastToast', {
+        detail: {
+          title: notificationTitle.trim(),
+          message: notificationMessage.trim(),
+          timestamp: new Date().toISOString()
+        }
+      }));
+
     } catch (error) {
       console.error('Error sending notification:', error);
       toast({
         variant: 'destructive',
         title: 'Failed to send notification',
-        description: 'There was an error sending the push notification. Please try again.'
+        description: 'There was an error sending the notification. Please try again.'
       });
     } finally {
       setIsSending(false);
@@ -195,7 +165,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
         <DialogHeader>
           <DialogTitle className="font-pixelated text-sm flex items-center gap-2">
             <Shield className="h-4 w-4 text-orange-500" />
-            Admin Push Panel
+            Admin Notification Panel
           </DialogTitle>
         </DialogHeader>
 
@@ -204,38 +174,25 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             <Alert>
               <AlertTriangle className="h-3 w-3" />
               <AlertDescription className="font-pixelated text-xs">
-                Restricted admin area for push notifications.
+                Restricted admin area for broadcasting notifications.
               </AlertDescription>
             </Alert>
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="font-pixelated text-xs">Admin Login</CardTitle>
+                <CardTitle className="font-pixelated text-xs">Admin Access</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="space-y-1">
-                  <Label htmlFor="username" className="font-pixelated text-xs">Username</Label>
-                  <Input
-                    id="username"
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="font-pixelated text-xs h-8"
-                    placeholder="Enter admin username"
-                    onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <Label htmlFor="password" className="font-pixelated text-xs">Password</Label>
+                  <Label htmlFor="adminCode" className="font-pixelated text-xs">Admin Code</Label>
                   <div className="relative">
                     <Input
-                      id="password"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      id="adminCode"
+                      type={showCode ? 'text' : 'password'}
+                      value={adminCode}
+                      onChange={(e) => setAdminCode(e.target.value)}
                       className="font-pixelated text-xs h-8 pr-8"
-                      placeholder="Enter admin password"
+                      placeholder="Enter admin code"
                       onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
                     />
                     <Button
@@ -243,9 +200,9 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
                       variant="ghost"
                       size="icon"
                       className="absolute right-0 top-0 h-8 w-8 hover:bg-transparent"
-                      onClick={() => setShowPassword(!showPassword)}
+                      onClick={() => setShowCode(!showCode)}
                     >
-                      {showPassword ? (
+                      {showCode ? (
                         <EyeOff className="h-3 w-3 text-muted-foreground" />
                       ) : (
                         <Eye className="h-3 w-3 text-muted-foreground" />
@@ -265,17 +222,17 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
                 <Button
                   onClick={handleLogin}
                   className="w-full bg-orange-600 hover:bg-orange-700 text-white font-pixelated text-xs h-8"
-                  disabled={!username.trim() || !password.trim()}
+                  disabled={!adminCode.trim()}
                 >
                   <Shield className="h-3 w-3 mr-1" />
-                  Login
+                  Access Admin Panel
                 </Button>
               </CardContent>
             </Card>
 
             <div className="bg-muted/50 p-2 rounded-lg">
               <p className="font-pixelated text-xs text-muted-foreground text-center">
-                Default: admin / socialchat2025
+                Coming Soon: Google Sign-In integration for enhanced security
               </p>
             </div>
           </div>
@@ -308,7 +265,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
               <CardHeader className="pb-2">
                 <CardTitle className="font-pixelated text-xs flex items-center gap-1">
                   <Zap className="h-3 w-3 text-orange-500" />
-                  Send to All Users
+                  Broadcast to All Users
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -353,7 +310,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
                   className="w-full bg-social-green hover:bg-social-light-green text-white font-pixelated text-xs h-8"
                 >
                   <Send className="h-3 w-3 mr-1" />
-                  {isSending ? 'Sending...' : 'Send Push Notification'}
+                  {isSending ? 'Sending...' : 'Send Notification'}
                 </Button>
               </CardContent>
             </Card>
@@ -361,7 +318,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             <Alert>
               <Bell className="h-3 w-3" />
               <AlertDescription className="font-pixelated text-xs">
-                Sends real push notifications to all users' devices.
+                Sends notifications to all users' notification tabs instantly.
               </AlertDescription>
             </Alert>
 
