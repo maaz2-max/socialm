@@ -10,6 +10,7 @@ import { LoadingScreen } from "@/components/ui/loading-screen";
 import { useTheme } from "@/hooks/use-theme";
 import { FirebaseNotificationProvider } from "@/components/notifications/FirebaseNotificationProvider";
 import { useToast } from "@/hooks/use-toast";
+import { NotificationService } from "@/config/firebase";
 
 // Pages
 import Index from "./pages/Index";
@@ -63,35 +64,19 @@ const App = () => {
     document.title = "SocialChat - Connect with Friends";
   }, [theme, colorTheme, setTheme, setColorTheme]);
 
-  // Listen for admin broadcast notifications (ONLY for authenticated users)
+  // Listen for Firebase admin broadcast notifications (ONLY for authenticated users)
   useEffect(() => {
     if (!session) return; // Only listen when user is logged in
 
-    console.log('Setting up admin notification listeners for authenticated user');
+    console.log('Setting up Firebase admin notification listeners for authenticated user');
 
-    const handleAdminBroadcastToast = (event: CustomEvent) => {
-      const { title, message } = event.detail;
+    // Listen for Firebase Realtime Database admin broadcasts
+    const unsubscribe = NotificationService.listenForAdminBroadcasts((notification) => {
+      console.log('Received Firebase admin broadcast:', notification);
       
-      console.log('Received admin broadcast toast:', { title, message });
+      const { title, message, timestamp } = notification;
       
       // Show toast notification for authenticated users only
-      toast({
-        title: `📢 ${title}`,
-        description: message,
-        duration: 10000,
-        className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900 shadow-lg',
-      });
-    };
-
-    // Listen for Supabase real-time admin broadcasts
-    const adminChannel = supabase.channel('admin-notifications-broadcast');
-    
-    adminChannel.on('broadcast', { event: 'admin_notification' }, (payload) => {
-      console.log('Received Supabase admin broadcast:', payload);
-      
-      const { title, message, timestamp } = payload.payload;
-      
-      // Show toast notification
       toast({
         title: `📢 ${title}`,
         description: message,
@@ -102,7 +87,7 @@ const App = () => {
       // Store in localStorage for notifications page
       const storedNotifications = JSON.parse(localStorage.getItem('adminNotifications') || '[]');
       const newNotification = {
-        id: payload.payload.id || Date.now().toString(),
+        id: notification.id || Date.now().toString(),
         title,
         message,
         timestamp,
@@ -125,17 +110,9 @@ const App = () => {
       }));
     });
 
-    adminChannel.subscribe((status) => {
-      console.log('Admin channel subscription status:', status);
-    });
-
-    // Also listen for custom events (fallback)
-    window.addEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
-
     return () => {
-      console.log('Cleaning up admin notification listeners');
-      supabase.removeChannel(adminChannel);
-      window.removeEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
+      console.log('Cleaning up Firebase admin notification listeners');
+      unsubscribe();
     };
   }, [toast, session]); // Only run when session exists
   

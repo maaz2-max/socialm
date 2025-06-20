@@ -1,9 +1,11 @@
 import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, push, onValue, off } from 'firebase/database';
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAXDc6PR-m2MBa0oklp9ObJggDmnvvn4RQ",
   authDomain: "mzsocialchat.firebaseapp.com",
+  databaseURL: "https://mzsocialchat-default-rtdb.firebaseio.com",
   projectId: "mzsocialchat",
   storageBucket: "mzsocialchat.firebasestorage.app",
   messagingSenderId: "1070261752972",
@@ -14,10 +16,12 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firebase Cloud Messaging and get a reference to the service
+// Initialize Firebase Realtime Database
+const database = getDatabase(app);
+
+// Initialize Firebase Cloud Messaging
 let messaging: any = null;
 
-// Check if messaging is supported
 const initializeMessaging = async () => {
   try {
     const supported = await isSupported();
@@ -30,14 +34,78 @@ const initializeMessaging = async () => {
   }
 };
 
-// Initialize messaging
 initializeMessaging();
 
-export { app, messaging };
+export { app, messaging, database };
 
-// Enhanced notification service for real push notifications
+// Enhanced notification service for real-time broadcasting
 export const NotificationService = {
-  // Initialize Firebase messaging
+  // Send admin broadcast notification using Firebase Realtime Database
+  async sendAdminBroadcast(title: string, message: string) {
+    try {
+      console.log('Sending admin broadcast via Firebase Realtime Database:', { title, message });
+
+      const timestamp = Date.now();
+      const notificationData = {
+        id: `admin_${timestamp}`,
+        title: title.trim(),
+        message: message.trim(),
+        timestamp: new Date().toISOString(),
+        type: 'admin_broadcast',
+        sender: 'admin'
+      };
+
+      // Push to Firebase Realtime Database
+      const notificationsRef = ref(database, 'admin_notifications');
+      await push(notificationsRef, notificationData);
+
+      console.log('Admin broadcast sent successfully via Firebase Realtime Database');
+
+      return {
+        success: true,
+        message: 'Admin broadcast sent successfully',
+        method: 'firebase_realtime_database',
+        timestamp: notificationData.timestamp
+      };
+    } catch (error) {
+      console.error('Error sending admin broadcast:', error);
+      return {
+        success: false,
+        error: error
+      };
+    }
+  },
+
+  // Listen for admin broadcasts from Firebase Realtime Database
+  listenForAdminBroadcasts(callback: (notification: any) => void) {
+    try {
+      const notificationsRef = ref(database, 'admin_notifications');
+      
+      const listener = onValue(notificationsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          // Get the latest notification
+          const notifications = Object.values(data) as any[];
+          const latestNotification = notifications[notifications.length - 1];
+          
+          if (latestNotification) {
+            console.log('Received admin broadcast from Firebase:', latestNotification);
+            callback(latestNotification);
+          }
+        }
+      });
+
+      // Return cleanup function
+      return () => {
+        off(notificationsRef, 'value', listener);
+      };
+    } catch (error) {
+      console.error('Error setting up admin broadcast listener:', error);
+      return () => {}; // Return empty cleanup function
+    }
+  },
+
+  // Initialize Firebase messaging (optional for push notifications)
   async initialize() {
     try {
       if (!messaging) {
@@ -53,7 +121,6 @@ export const NotificationService = {
       if (permission === 'granted') {
         console.log('Notification permission granted');
         
-        // Get FCM token
         try {
           const token = await getToken(messaging, {
             vapidKey: 'BKxvxhk6f0JTzuykzAkjBpjA4rZmdn7_VrR2E2dVZ1K5ZGZjYzQzNjE4LTk2YjYtNGE4Yi1hZjE4LWY5ZjE4ZjE4ZjE4Zg'
@@ -61,7 +128,6 @@ export const NotificationService = {
           
           if (token) {
             console.log('FCM Token:', token);
-            // Store token for backend use
             localStorage.setItem('fcm_token', token);
             return token;
           }
@@ -84,155 +150,8 @@ export const NotificationService = {
     
     return onMessage(messaging, (payload) => {
       console.log('Foreground message received:', payload);
-      
-      // Show browser notification
-      if (Notification.permission === 'granted') {
-        const notificationTitle = payload.notification?.title || 'SocialChat Admin';
-        const notificationOptions = {
-          body: payload.notification?.body || payload.data?.message || 'New notification',
-          icon: '/lovable-uploads/d215e62c-d97d-4600-a98e-68acbeba47d0.png',
-          badge: '/lovable-uploads/d215e62c-d97d-4600-a98e-68acbeba47d0.png',
-          tag: 'admin-broadcast',
-          requireInteraction: true,
-          data: payload.data,
-          actions: [
-            {
-              action: 'view',
-              title: 'View'
-            },
-            {
-              action: 'dismiss',
-              title: 'Dismiss'
-            }
-          ]
-        };
-
-        const notification = new Notification(notificationTitle, notificationOptions);
-        
-        notification.onclick = () => {
-          window.focus();
-          notification.close();
-        };
-
-        // Auto close after 10 seconds
-        setTimeout(() => {
-          notification.close();
-        }, 10000);
-      }
-      
       callback(payload);
     });
-  },
-
-  // Send notification to all users (admin broadcast)
-  async sendNotificationToUser(userId: string, title: string, body: string, data?: any) {
-    try {
-      console.log('Preparing admin broadcast notification:', {
-        userId,
-        title,
-        body,
-        data,
-        timestamp: new Date().toISOString(),
-        type: 'admin_broadcast'
-      });
-
-      // For demo purposes, simulate a broadcast by showing notifications to current user
-      // In production, this would call your backend API
-      
-      // Show immediate browser notification
-      if ('Notification' in window && Notification.permission === 'granted') {
-        const notification = new Notification(title, {
-          body: body,
-          icon: '/lovable-uploads/d215e62c-d97d-4600-a98e-68acbeba47d0.png',
-          tag: 'admin-broadcast',
-          requireInteraction: true,
-          data: {
-            ...data,
-            type: 'admin_broadcast',
-            timestamp: new Date().toISOString()
-          }
-        });
-
-        notification.onclick = () => {
-          window.focus();
-          notification.close();
-        };
-
-        // Auto close after 8 seconds
-        setTimeout(() => {
-          notification.close();
-        }, 8000);
-      }
-
-      // Always dispatch custom event for in-page toast notifications (works without permission)
-      const broadcastEvent = new CustomEvent('adminBroadcastToast', {
-        detail: {
-          title,
-          message: body,
-          data: {
-            ...data,
-            type: 'admin_broadcast',
-            timestamp: new Date().toISOString()
-          }
-        }
-      });
-      
-      window.dispatchEvent(broadcastEvent);
-
-      // Also dispatch the original event for backward compatibility
-      const originalBroadcastEvent = new CustomEvent('adminBroadcast', {
-        detail: {
-          title,
-          body,
-          data: {
-            ...data,
-            type: 'admin_broadcast',
-            timestamp: new Date().toISOString()
-          }
-        }
-      });
-      
-      window.dispatchEvent(originalBroadcastEvent);
-
-      return {
-        success: true,
-        message: 'Admin broadcast notification sent successfully',
-        recipients: 'all-users',
-        timestamp: new Date().toISOString(),
-        method: 'firebase_fcm'
-      };
-    } catch (error) {
-      console.error('Error sending admin broadcast:', error);
-      return {
-        success: false,
-        error: error
-      };
-    }
-  },
-
-  // Send toast notification (for immediate UI feedback)
-  async sendToastNotification(title: string, message: string, type: 'success' | 'info' | 'warning' | 'error' = 'info') {
-    try {
-      // Show browser notification
-      if ('Notification' in window && Notification.permission === 'granted') {
-        const notification = new Notification(title, {
-          body: message,
-          icon: '/lovable-uploads/d215e62c-d97d-4600-a98e-68acbeba47d0.png',
-          tag: `toast-${type}`,
-          requireInteraction: false
-        });
-
-        // Auto close after 5 seconds
-        setTimeout(() => {
-          notification.close();
-        }, 5000);
-      }
-
-      return { success: true };
-    } catch (error) {
-      console.error('Error sending toast notification:', error);
-      return { success: false, error };
-    }
   }
 };
 
@@ -273,18 +192,3 @@ export const requestNotificationPermission = async () => {
     return null;
   }
 };
-
-// Listen for admin broadcast messages
-export const onAdminMessageListener = () =>
-  new Promise((resolve) => {
-    if (!messaging) {
-      resolve(null);
-      return;
-    }
-    
-    onMessage(messaging, (payload) => {
-      if (payload.data?.type === 'admin_broadcast') {
-        resolve(payload);
-      }
-    });
-  });

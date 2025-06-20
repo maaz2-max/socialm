@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Bell, Send, LogOut, Shield, Eye, EyeOff, AlertTriangle, Zap, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { NotificationService } from '@/config/firebase';
 
 interface AdminNotificationPanelProps {
   open: boolean;
@@ -108,129 +109,39 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
     try {
       setIsSending(true);
 
-      const timestamp = new Date().toISOString();
       const titleToSend = notificationTitle.trim();
       const messageToSend = notificationMessage.trim();
-      const notificationId = `admin_${Date.now()}`;
 
-      console.log('Sending admin notification:', { titleToSend, messageToSend, timestamp });
+      console.log('Sending admin notification via Firebase Realtime Database:', { titleToSend, messageToSend });
 
-      // Method 1: Direct localStorage broadcast for immediate effect
-      const adminNotification = {
-        id: notificationId,
-        title: titleToSend,
-        message: messageToSend,
-        timestamp: timestamp,
-        type: 'admin_broadcast',
-        read: false
-      };
+      // Send via Firebase Realtime Database for instant broadcasting
+      const result = await NotificationService.sendAdminBroadcast(titleToSend, messageToSend);
 
-      // Store in localStorage for persistence
-      const existingNotifications = JSON.parse(localStorage.getItem('adminNotifications') || '[]');
-      existingNotifications.unshift(adminNotification);
-      
-      // Keep only last 10 notifications
-      if (existingNotifications.length > 10) {
-        existingNotifications.splice(10);
-      }
-      
-      localStorage.setItem('adminNotifications', JSON.stringify(existingNotifications));
-
-      // Method 2: Trigger immediate toast notification
-      toast({
-        title: `📢 ${titleToSend}`,
-        description: messageToSend,
-        duration: 10000,
-        className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900 shadow-lg',
-      });
-
-      // Method 3: Dispatch custom event for real-time updates
-      const broadcastEvent = new CustomEvent('adminBroadcastToast', {
-        detail: {
-          title: titleToSend,
-          message: messageToSend,
-          timestamp: timestamp,
-          type: 'admin_broadcast'
-        }
-      });
-      
-      window.dispatchEvent(broadcastEvent);
-
-      // Method 4: Use Supabase real-time broadcast
-      try {
-        const channel = supabase.channel('admin-notifications-broadcast');
+      if (result.success) {
+        setNotificationsSent(prev => prev + 1);
         
-        await channel.send({
-          type: 'broadcast',
-          event: 'admin_notification',
-          payload: {
-            id: notificationId,
-            title: titleToSend,
-            message: messageToSend,
-            timestamp: timestamp,
-            type: 'admin_broadcast'
-          }
+        toast({
+          title: '🚀 Notification sent successfully!',
+          description: `Admin notification "${titleToSend}" has been broadcast to all users via Firebase Realtime Database.`,
         });
 
-        console.log('Supabase broadcast sent successfully');
-      } catch (broadcastError) {
-        console.error('Supabase broadcast error:', broadcastError);
-        // Continue anyway since we have other methods
+        // Clear form
+        setNotificationTitle('');
+        setNotificationMessage('');
+
+        // Show preview notification for admin
+        setTimeout(() => {
+          toast({
+            title: `📢 ${titleToSend}`,
+            description: messageToSend,
+            duration: 8000,
+            className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900 shadow-lg',
+          });
+        }, 1000);
+
+      } else {
+        throw new Error(result.error || 'Failed to send notification');
       }
-
-      // Method 5: Create database notifications for all users (background)
-      try {
-        const { data: allUsers } = await supabase
-          .from('profiles')
-          .select('id');
-
-        if (allUsers && allUsers.length > 0) {
-          // Create notifications in smaller batches to avoid timeout
-          const batchSize = 20;
-          let successCount = 0;
-
-          for (let i = 0; i < allUsers.length; i += batchSize) {
-            const batch = allUsers.slice(i, i + batchSize);
-            const notifications = batch.map(user => ({
-              user_id: user.id,
-              type: 'admin_broadcast',
-              content: `${titleToSend}: ${messageToSend}`,
-              read: false,
-              created_at: timestamp,
-              reference_id: notificationId
-            }));
-
-            try {
-              const { error: insertError } = await supabase
-                .from('notifications')
-                .insert(notifications);
-
-              if (!insertError) {
-                successCount += batch.length;
-              }
-            } catch (batchError) {
-              console.error('Batch insert error:', batchError);
-            }
-          }
-
-          console.log(`Created ${successCount} database notifications`);
-        }
-      } catch (dbError) {
-        console.error('Database notification error:', dbError);
-        // Continue anyway since the main broadcast worked
-      }
-
-      setNotificationsSent(prev => prev + 1);
-      
-      toast({
-        title: '🚀 Notification sent successfully!',
-        description: `Admin notification "${titleToSend}" has been broadcast to all users instantly.`,
-      });
-
-      // Clear form
-      setNotificationTitle('');
-      setNotificationMessage('');
-
     } catch (error) {
       console.error('Error sending notification:', error);
       toast({
@@ -354,7 +265,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
               <CardHeader className="pb-2">
                 <CardTitle className="font-pixelated text-xs flex items-center gap-1">
                   <Zap className="h-3 w-3 text-orange-500" />
-                  Broadcast to All Users
+                  Firebase Realtime Broadcast
                 </CardTitle>
                 <div className="flex items-center gap-1 text-muted-foreground">
                   <Users className="h-3 w-3" />
@@ -411,7 +322,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             <Alert>
               <Bell className="h-3 w-3" />
               <AlertDescription className="font-pixelated text-xs">
-                Sends instant real-time notifications to all logged-in users. Notifications appear as toast messages and are saved to notification tabs.
+                Uses Firebase Realtime Database for instant broadcasting to all logged-in users. No permissions required - notifications appear as toast messages.
               </AlertDescription>
             </Alert>
 
