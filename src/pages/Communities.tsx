@@ -137,21 +137,43 @@ export function Communities() {
     try {
       setLoading(true);
 
-      // Fetch public communities and user's membership status
-      const { data: publicCommunities, error: publicError } = await supabase
+      // Fetch all communities (public and private that user has access to)
+      const { data: allCommunities, error: communitiesError } = await supabase
         .from('communities')
         .select(`
           *,
           admin_profile:profiles!communities_admin_id_fkey(name, username)
         `)
-        .eq('is_private', false)
         .order('created_at', { ascending: false });
 
-      if (publicError) throw publicError;
+      if (communitiesError) throw communitiesError;
 
-      // Get user's membership status for each community
+      // Filter communities based on privacy and user access
+      const accessibleCommunities = [];
+      
+      for (const community of allCommunities || []) {
+        // Always show public communities
+        if (!community.is_private) {
+          accessibleCommunities.push(community);
+        } else {
+          // For private communities, check if user is a member or admin
+          const { data: membership } = await supabase
+            .from('community_members')
+            .select('status')
+            .eq('community_id', community.id)
+            .eq('user_id', currentUser.id)
+            .single();
+
+          // Show private community if user is admin or has any membership status
+          if (community.admin_id === currentUser.id || membership) {
+            accessibleCommunities.push(community);
+          }
+        }
+      }
+
+      // Get user's membership status for each accessible community
       const communitiesWithStatus = await Promise.all(
-        (publicCommunities || []).map(async (community) => {
+        accessibleCommunities.map(async (community) => {
           const { data: membership } = await supabase
             .from('community_members')
             .select('status')
@@ -169,6 +191,11 @@ export function Communities() {
       setCommunities(communitiesWithStatus);
     } catch (error) {
       console.error('Error fetching communities:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to load communities'
+      });
     } finally {
       setLoading(false);
     }
@@ -202,7 +229,18 @@ export function Communities() {
 
   const fetchJoinRequests = async () => {
     try {
-      // Fetch join requests for communities where current user is admin
+      // Get communities where current user is admin
+      const { data: adminCommunities } = await supabase
+        .from('communities')
+        .select('id')
+        .eq('admin_id', currentUser.id);
+
+      if (!adminCommunities || adminCommunities.length === 0) {
+        setJoinRequests([]);
+        return;
+      }
+
+      // Fetch join requests for those communities
       const { data, error } = await supabase
         .from('community_members')
         .select(`
@@ -211,13 +249,7 @@ export function Communities() {
           communities (name)
         `)
         .eq('status', 'pending')
-        .in('community_id', 
-          await supabase
-            .from('communities')
-            .select('id')
-            .eq('admin_id', currentUser.id)
-            .then(res => res.data?.map(c => c.id) || [])
-        );
+        .in('community_id', adminCommunities.map(c => c.id));
 
       if (error) throw error;
       setJoinRequests(data || []);
@@ -239,18 +271,37 @@ export function Communities() {
     try {
       setCreating(true);
 
+      // Check if community name already exists
+      const { data: existingCommunity } = await supabase
+        .from('communities')
+        .select('id')
+        .eq('name', createForm.name.trim())
+        .single();
+
+      if (existingCommunity) {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'A community with this name already exists'
+        });
+        return;
+      }
+
       const { data, error } = await supabase
         .from('communities')
         .insert({
           name: createForm.name.trim(),
-          description: createForm.description.trim(),
+          description: createForm.description.trim() || null,
           admin_id: currentUser.id,
           is_private: createForm.is_private
         })
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Community creation error:', error);
+        throw error;
+      }
 
       toast({
         title: 'Community created!',
@@ -259,14 +310,19 @@ export function Communities() {
 
       setCreateForm({ name: '', description: '', is_private: false });
       setShowCreateDialog(false);
-      fetchCommunities();
-      fetchMyCommunities();
+      
+      // Refresh all data
+      await Promise.all([
+        fetchCommunities(),
+        fetchMyCommunities(),
+        fetchJoinRequests()
+      ]);
     } catch (error) {
       console.error('Error creating community:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to create community'
+        description: error.message || 'Failed to create community'
       });
     } finally {
       setCreating(false);
@@ -327,8 +383,12 @@ export function Communities() {
         description: `The join request has been ${action}ed`
       });
 
-      fetchJoinRequests();
-      fetchCommunities();
+      // Refresh all data
+      await Promise.all([
+        fetchJoinRequests(),
+        fetchCommunities(),
+        fetchMyCommunities()
+      ]);
     } catch (error) {
       console.error('Error handling join request:', error);
       toast({
@@ -517,6 +577,15 @@ export function Communities() {
                   <Label htmlFor="private" className="font-pixelated text-sm">
                     Private Community
                   </Label>
+                </div>
+                
+                <div className="bg-muted/50 p-3 rounded-lg">
+                  <p className="font-pixelated text-xs text-muted-foreground">
+                    {createForm.is_private 
+                      ? "🔒 Private: Only members can see and join this community"
+                      : "🌍 Public: Anyone can discover and request to join this community"
+                    }
+                  </p>
                 </div>
                 
                 <div className="flex gap-2 pt-2">
