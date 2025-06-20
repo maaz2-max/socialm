@@ -68,11 +68,11 @@ const App = () => {
   useEffect(() => {
     if (!session) return; // Only listen when user is logged in
 
-    console.log('Setting up Firebase admin notification listeners for authenticated user');
+    console.log('🔄 Setting up Firebase admin notification listeners for authenticated user:', session.user.id);
 
     // Listen for Firebase Realtime Database admin broadcasts
     const unsubscribe = NotificationService.listenForAdminBroadcasts((notification) => {
-      console.log('Received Firebase admin broadcast:', notification);
+      console.log('🔔 Received Firebase admin broadcast:', notification);
       
       const { title, message, timestamp } = notification;
       
@@ -90,7 +90,7 @@ const App = () => {
         id: notification.id || Date.now().toString(),
         title,
         message,
-        timestamp,
+        timestamp: timestamp || new Date().toISOString(),
         type: 'admin_broadcast',
         read: false
       };
@@ -106,12 +106,12 @@ const App = () => {
 
       // Trigger custom event for notifications page
       window.dispatchEvent(new CustomEvent('adminBroadcastToast', {
-        detail: { title, message, timestamp }
+        detail: { title, message, timestamp: timestamp || new Date().toISOString() }
       }));
     });
 
     return () => {
-      console.log('Cleaning up Firebase admin notification listeners');
+      console.log('🧹 Cleaning up Firebase admin notification listeners');
       unsubscribe();
     };
   }, [toast, session]); // Only run when session exists

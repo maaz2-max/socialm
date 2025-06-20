@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Bell, Send, LogOut, Shield, Eye, EyeOff, AlertTriangle, Zap, Users } from 'lucide-react';
+import { Bell, Send, LogOut, Shield, Eye, EyeOff, AlertTriangle, Zap, Users, CheckCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { NotificationService } from '@/config/firebase';
@@ -26,6 +26,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
   const [loginError, setLoginError] = useState('');
   const [notificationsSent, setNotificationsSent] = useState(0);
   const [userCount, setUserCount] = useState(0);
+  const [lastBroadcastId, setLastBroadcastId] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Default admin code
@@ -79,7 +80,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
       setAdminCode('');
       toast({
         title: 'Admin access granted',
-        description: 'You can now send notifications to all users.',
+        description: 'You can now send real-time notifications to all users.',
       });
     } else {
       setLoginError('Invalid admin code. Please try again.');
@@ -94,6 +95,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
     setNotificationMessage('');
     setLoginError('');
     setNotificationsSent(0);
+    setLastBroadcastId(null);
   };
 
   const handleSendNotification = async () => {
@@ -112,24 +114,25 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
       const titleToSend = notificationTitle.trim();
       const messageToSend = notificationMessage.trim();
 
-      console.log('Sending admin notification via Firebase Realtime Database:', { titleToSend, messageToSend });
+      console.log('🚀 Admin sending notification via Firebase Realtime Database:', { titleToSend, messageToSend });
 
       // Send via Firebase Realtime Database for instant broadcasting
       const result = await NotificationService.sendAdminBroadcast(titleToSend, messageToSend);
 
       if (result.success) {
         setNotificationsSent(prev => prev + 1);
+        setLastBroadcastId(result.broadcast_id || null);
         
         toast({
-          title: '🚀 Notification sent successfully!',
-          description: `Admin notification "${titleToSend}" has been broadcast to all users via Firebase Realtime Database.`,
+          title: '🚀 Notification broadcast successful!',
+          description: `"${titleToSend}" has been sent to all ${userCount} users via Firebase Realtime Database.`,
         });
 
         // Clear form
         setNotificationTitle('');
         setNotificationMessage('');
 
-        // Show preview notification for admin
+        // Show preview notification for admin after a short delay
         setTimeout(() => {
           toast({
             title: `📢 ${titleToSend}`,
@@ -137,17 +140,17 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             duration: 8000,
             className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900 shadow-lg',
           });
-        }, 1000);
+        }, 1500);
 
       } else {
         throw new Error(result.error || 'Failed to send notification');
       }
     } catch (error) {
-      console.error('Error sending notification:', error);
+      console.error('❌ Error sending notification:', error);
       toast({
         variant: 'destructive',
         title: 'Failed to send notification',
-        description: 'There was an error broadcasting the notification. Please try again.'
+        description: 'There was an error broadcasting the notification. Please check your connection and try again.'
       });
     } finally {
       setIsSending(false);
@@ -165,7 +168,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
         <DialogHeader>
           <DialogTitle className="font-pixelated text-sm flex items-center gap-2">
             <Shield className="h-4 w-4 text-orange-500" />
-            Admin Notification Panel
+            Admin Broadcast Panel
           </DialogTitle>
         </DialogHeader>
 
@@ -174,7 +177,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             <Alert>
               <AlertTriangle className="h-3 w-3" />
               <AlertDescription className="font-pixelated text-xs">
-                Restricted admin area for broadcasting notifications to all users.
+                Restricted admin area for real-time broadcasting to all users.
               </AlertDescription>
             </Alert>
 
@@ -245,7 +248,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
                   <span className="font-pixelated text-xs text-green-800">Admin Active</span>
                   {notificationsSent > 0 && (
                     <p className="font-pixelated text-xs text-green-600">
-                      {notificationsSent} sent
+                      {notificationsSent} broadcast{notificationsSent > 1 ? 's' : ''} sent
                     </p>
                   )}
                 </div>
@@ -260,6 +263,16 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
                 Logout
               </Button>
             </div>
+
+            {/* Success indicator for last broadcast */}
+            {lastBroadcastId && (
+              <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded-lg">
+                <CheckCircle className="h-3 w-3 text-green-600" />
+                <span className="font-pixelated text-xs text-green-800">
+                  Last broadcast delivered successfully
+                </span>
+              </div>
+            )}
 
             <Card>
               <CardHeader className="pb-2">
@@ -314,7 +327,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
                   className="w-full bg-social-green hover:bg-social-light-green text-white font-pixelated text-xs h-8"
                 >
                   <Send className="h-3 w-3 mr-1" />
-                  {isSending ? 'Broadcasting...' : `Send to ${userCount} Users`}
+                  {isSending ? 'Broadcasting...' : `Broadcast to ${userCount} Users`}
                 </Button>
               </CardContent>
             </Card>
@@ -322,7 +335,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             <Alert>
               <Bell className="h-3 w-3" />
               <AlertDescription className="font-pixelated text-xs">
-                Uses Firebase Realtime Database for instant broadcasting to all logged-in users. No permissions required - notifications appear as toast messages.
+                Uses Firebase Realtime Database for instant broadcasting. Notifications appear immediately as toast messages for all logged-in users.
               </AlertDescription>
             </Alert>
 
