@@ -24,7 +24,8 @@ import {
   Globe,
   Lock,
   Calendar,
-  Hash
+  Hash,
+  AlertCircle
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -81,127 +82,160 @@ export function Communities() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchCurrentUser();
+    initializeData();
   }, []);
 
-  useEffect(() => {
-    if (currentUser) {
-      fetchCommunities();
-      fetchMyCommunities();
-      fetchJoinRequests();
-      
-      // Set up real-time subscriptions
-      const communitiesChannel = supabase
-        .channel('communities-realtime')
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'communities' }, 
-          () => {
-            fetchCommunities();
-            fetchMyCommunities();
-          }
-        )
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'community_members' }, 
-          () => {
-            fetchCommunities();
-            fetchMyCommunities();
-            fetchJoinRequests();
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(communitiesChannel);
-      };
-    }
-  }, [currentUser]);
-
-  const fetchCurrentUser = async () => {
+  const initializeData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-        
-        setCurrentUser({ ...user, ...profile });
-      }
+      await fetchCurrentUser();
     } catch (error) {
-      console.error('Error fetching current user:', error);
-    }
-  };
-
-  const fetchCommunities = async () => {
-    try {
-      setLoading(true);
-
-      // Fetch all communities (public and private that user has access to)
-      const { data: allCommunities, error: communitiesError } = await supabase
-        .from('communities')
-        .select(`
-          *,
-          admin_profile:profiles!communities_admin_id_fkey(name, username)
-        `)
-        .order('created_at', { ascending: false });
-
-      if (communitiesError) throw communitiesError;
-
-      // Filter communities based on privacy and user access
-      const accessibleCommunities = [];
-      
-      for (const community of allCommunities || []) {
-        // Always show public communities
-        if (!community.is_private) {
-          accessibleCommunities.push(community);
-        } else {
-          // For private communities, check if user is a member or admin
-          const { data: membership } = await supabase
-            .from('community_members')
-            .select('status')
-            .eq('community_id', community.id)
-            .eq('user_id', currentUser.id)
-            .single();
-
-          // Show private community if user is admin or has any membership status
-          if (community.admin_id === currentUser.id || membership) {
-            accessibleCommunities.push(community);
-          }
-        }
-      }
-
-      // Get user's membership status for each accessible community
-      const communitiesWithStatus = await Promise.all(
-        accessibleCommunities.map(async (community) => {
-          const { data: membership } = await supabase
-            .from('community_members')
-            .select('status')
-            .eq('community_id', community.id)
-            .eq('user_id', currentUser.id)
-            .single();
-
-          return {
-            ...community,
-            user_status: membership?.status || null
-          };
-        })
-      );
-
-      setCommunities(communitiesWithStatus);
-    } catch (error) {
-      console.error('Error fetching communities:', error);
+      console.error('Error initializing data:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to load communities'
+        description: 'Failed to initialize. Please refresh the page.'
+      });
+    }
+  };
+
+  const fetchCurrentUser = async () => {
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError) {
+        console.error('Auth error:', userError);
+        throw userError;
+      }
+
+      if (!user) {
+        console.error('No user found');
+        navigate('/login');
+        return;
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      if (profileError) {
+        console.error('Profile error:', profileError);
+        throw profileError;
+      }
+
+      const userData = { ...user, ...profile };
+      setCurrentUser(userData);
+      
+      // Now fetch communities data
+      await Promise.all([
+        fetchCommunities(userData),
+        fetchMyCommunities(userData),
+        fetchJoinRequests(userData)
+      ]);
+      
+      setupRealtimeSubscriptions(userData);
+      
+    } catch (error) {
+      console.error('Error fetching current user:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to load user data'
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchMyCommunities = async () => {
+  const fetchCommunities = async (user: any) => {
+    try {
+      // First, get all public communities
+      const { data: publicCommunities, error: publicError } = await supabase
+        .from('communities')
+        .select(`
+          *,
+          admin_profile:profiles!communities_admin_id_fkey(name, username)
+        `)
+        .eq('is_private', false)
+        .order('created_at', { ascending: false });
+
+      if (publicError) {
+        console.error('Error fetching public communities:', publicError);
+        throw publicError;
+      }
+
+      // Then get private communities where user is a member
+      const { data: userMemberships, error: membershipError } = await supabase
+        .from('community_members')
+        .select(`
+          community_id,
+          status,
+          communities!inner (
+            *,
+            admin_profile:profiles!communities_admin_id_fkey(name, username)
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('communities.is_private', true);
+
+      if (membershipError) {
+        console.error('Error fetching private communities:', membershipError);
+        // Don't throw here, just log the error
+      }
+
+      // Combine public communities and private communities user has access to
+      const allCommunities = [...(publicCommunities || [])];
+      
+      if (userMemberships) {
+        userMemberships.forEach(membership => {
+          if (membership.communities) {
+            allCommunities.push({
+              ...membership.communities,
+              user_status: membership.status
+            });
+          }
+        });
+      }
+
+      // Get user's membership status for all communities
+      const communitiesWithStatus = await Promise.all(
+        allCommunities.map(async (community) => {
+          try {
+            const { data: membership } = await supabase
+              .from('community_members')
+              .select('status')
+              .eq('community_id', community.id)
+              .eq('user_id', user.id)
+              .maybeSingle();
+
+            return {
+              ...community,
+              user_status: membership?.status || null
+            };
+          } catch (error) {
+            console.error('Error fetching membership for community:', community.id, error);
+            return {
+              ...community,
+              user_status: null
+            };
+          }
+        })
+      );
+
+      // Remove duplicates based on ID
+      const uniqueCommunities = communitiesWithStatus.filter((community, index, self) =>
+        index === self.findIndex(c => c.id === community.id)
+      );
+
+      setCommunities(uniqueCommunities);
+    } catch (error) {
+      console.error('Error fetching communities:', error);
+      setCommunities([]);
+    }
+  };
+
+  const fetchMyCommunities = async (user: any) => {
     try {
       const { data, error } = await supabase
         .from('community_members')
@@ -211,10 +245,13 @@ export function Communities() {
             admin_profile:profiles!communities_admin_id_fkey(name, username)
           )
         `)
-        .eq('user_id', currentUser.id)
+        .eq('user_id', user.id)
         .eq('status', 'accepted');
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching my communities:', error);
+        throw error;
+      }
 
       const myCommunitiesList = data?.map(item => ({
         ...item.communities,
@@ -224,16 +261,22 @@ export function Communities() {
       setMyCommunities(myCommunitiesList);
     } catch (error) {
       console.error('Error fetching my communities:', error);
+      setMyCommunities([]);
     }
   };
 
-  const fetchJoinRequests = async () => {
+  const fetchJoinRequests = async (user: any) => {
     try {
       // Get communities where current user is admin
-      const { data: adminCommunities } = await supabase
+      const { data: adminCommunities, error: adminError } = await supabase
         .from('communities')
         .select('id')
-        .eq('admin_id', currentUser.id);
+        .eq('admin_id', user.id);
+
+      if (adminError) {
+        console.error('Error fetching admin communities:', adminError);
+        throw adminError;
+      }
 
       if (!adminCommunities || adminCommunities.length === 0) {
         setJoinRequests([]);
@@ -251,11 +294,42 @@ export function Communities() {
         .eq('status', 'pending')
         .in('community_id', adminCommunities.map(c => c.id));
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching join requests:', error);
+        throw error;
+      }
+
       setJoinRequests(data || []);
     } catch (error) {
       console.error('Error fetching join requests:', error);
+      setJoinRequests([]);
     }
+  };
+
+  const setupRealtimeSubscriptions = (user: any) => {
+    const communitiesChannel = supabase
+      .channel('communities-realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'communities' }, 
+        () => {
+          fetchCommunities(user);
+          fetchMyCommunities(user);
+        }
+      )
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'community_members' }, 
+        () => {
+          fetchCommunities(user);
+          fetchMyCommunities(user);
+          fetchJoinRequests(user);
+        }
+      )
+      .subscribe();
+
+    // Cleanup function will be handled by component unmount
+    return () => {
+      supabase.removeChannel(communitiesChannel);
+    };
   };
 
   const createCommunity = async () => {
@@ -268,39 +342,59 @@ export function Communities() {
       return;
     }
 
+    if (!currentUser) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'You must be logged in to create a community'
+      });
+      return;
+    }
+
     try {
       setCreating(true);
 
-      // Check if community name already exists
-      const { data: existingCommunity } = await supabase
+      // Check if community name already exists (case insensitive)
+      const { data: existingCommunity, error: checkError } = await supabase
         .from('communities')
-        .select('id')
-        .eq('name', createForm.name.trim())
-        .single();
+        .select('id, name')
+        .ilike('name', createForm.name.trim())
+        .maybeSingle();
+
+      if (checkError) {
+        console.error('Error checking existing community:', checkError);
+        throw new Error('Failed to check if community name exists');
+      }
 
       if (existingCommunity) {
         toast({
           variant: 'destructive',
-          title: 'Error',
-          description: 'A community with this name already exists'
+          title: 'Name already taken',
+          description: 'A community with this name already exists. Please choose a different name.'
         });
         return;
       }
 
-      const { data, error } = await supabase
+      // Create the community
+      const { data: newCommunity, error: createError } = await supabase
         .from('communities')
         .insert({
           name: createForm.name.trim(),
           description: createForm.description.trim() || null,
           admin_id: currentUser.id,
-          is_private: createForm.is_private
+          is_private: createForm.is_private,
+          member_count: 1
         })
         .select()
         .single();
 
-      if (error) {
-        console.error('Community creation error:', error);
-        throw error;
+      if (createError) {
+        console.error('Community creation error:', createError);
+        throw new Error(createError.message || 'Failed to create community');
+      }
+
+      if (!newCommunity) {
+        throw new Error('Community was not created properly');
       }
 
       toast({
@@ -308,21 +402,23 @@ export function Communities() {
         description: `${createForm.name} has been created successfully`
       });
 
+      // Reset form and close dialog
       setCreateForm({ name: '', description: '', is_private: false });
       setShowCreateDialog(false);
       
       // Refresh all data
       await Promise.all([
-        fetchCommunities(),
-        fetchMyCommunities(),
-        fetchJoinRequests()
+        fetchCommunities(currentUser),
+        fetchMyCommunities(currentUser),
+        fetchJoinRequests(currentUser)
       ]);
-    } catch (error) {
+
+    } catch (error: any) {
       console.error('Error creating community:', error);
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: error.message || 'Failed to create community'
+        title: 'Failed to create community',
+        description: error.message || 'An unexpected error occurred. Please try again.'
       });
     } finally {
       setCreating(false);
@@ -330,6 +426,15 @@ export function Communities() {
   };
 
   const joinCommunity = async (communityId: string) => {
+    if (!currentUser) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'You must be logged in to join a community'
+      });
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from('community_members')
@@ -347,6 +452,7 @@ export function Communities() {
             description: 'You have already sent a join request to this community'
           });
         } else {
+          console.error('Join community error:', error);
           throw error;
         }
       } else {
@@ -354,14 +460,14 @@ export function Communities() {
           title: 'Join request sent!',
           description: 'Your request to join the community has been sent'
         });
-        fetchCommunities();
+        await fetchCommunities(currentUser);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error joining community:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to send join request'
+        description: error.message || 'Failed to send join request'
       });
     }
   };
@@ -376,7 +482,10 @@ export function Communities() {
         })
         .eq('id', requestId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error handling join request:', error);
+        throw error;
+      }
 
       toast({
         title: `Request ${action}ed`,
@@ -385,16 +494,16 @@ export function Communities() {
 
       // Refresh all data
       await Promise.all([
-        fetchJoinRequests(),
-        fetchCommunities(),
-        fetchMyCommunities()
+        fetchJoinRequests(currentUser),
+        fetchCommunities(currentUser),
+        fetchMyCommunities(currentUser)
       ]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error handling join request:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: `Failed to ${action} request`
+        description: error.message || `Failed to ${action} request`
       });
     }
   };
@@ -554,7 +663,11 @@ export function Communities() {
                     value={createForm.name}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, name: e.target.value }))}
                     className="font-pixelated text-sm"
+                    maxLength={50}
                   />
+                  <p className="font-pixelated text-xs text-muted-foreground">
+                    {createForm.name.length}/50 characters
+                  </p>
                 </div>
                 
                 <div className="space-y-2">
@@ -565,7 +678,11 @@ export function Communities() {
                     value={createForm.description}
                     onChange={(e) => setCreateForm(prev => ({ ...prev, description: e.target.value }))}
                     className="font-pixelated text-sm min-h-[80px]"
+                    maxLength={200}
                   />
+                  <p className="font-pixelated text-xs text-muted-foreground">
+                    {createForm.description.length}/200 characters
+                  </p>
                 </div>
                 
                 <div className="flex items-center space-x-2">

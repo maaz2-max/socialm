@@ -227,20 +227,19 @@ const StoriesContainer = React.memo(() => {
     fetchStories();
   }, [fetchStories]);
 
-  // Get theme color for story borders
+  // Get theme color for story borders based on current theme
   const getThemeColor = () => {
     const root = document.documentElement;
-    const computedStyle = getComputedStyle(root);
     
     // Check for theme color classes
     if (root.classList.contains('theme-blue')) {
-      return 'rgb(59, 130, 246)'; // blue-500
+      return '#3b82f6'; // blue-500
     } else if (root.classList.contains('theme-red')) {
-      return 'rgb(239, 68, 68)'; // red-500
+      return '#ef4444'; // red-500
     } else if (root.classList.contains('theme-orange')) {
-      return 'rgb(249, 115, 22)'; // orange-500
+      return '#f97316'; // orange-500
     } else if (root.classList.contains('theme-purple')) {
-      return 'rgb(168, 85, 247)'; // purple-500
+      return '#a855f7'; // purple-500
     } else {
       // Default green theme
       return 'hsl(142, 76%, 36%)'; // social-green
@@ -248,6 +247,11 @@ const StoriesContainer = React.memo(() => {
   };
 
   const themeColor = getThemeColor();
+
+  // Create gradient for unseen stories
+  const createStoryGradient = (color: string) => {
+    return `linear-gradient(45deg, ${color}, ${color}dd, ${color}aa)`;
+  };
 
   if (loading) {
     return (
@@ -269,23 +273,32 @@ const StoriesContainer = React.memo(() => {
         <div className="flex flex-col items-center gap-1 min-w-[60px]">
           <div className="relative">
             <Avatar 
-              className={`w-12 h-12 border-2 cursor-pointer transition-all duration-200 ${
+              className={`w-12 h-12 cursor-pointer transition-all duration-200 hover:scale-105 ${
                 userStory 
-                  ? `hover:scale-105 ${userStory.viewed_by_user ? 'border-gray-300' : 'border-2'}` 
-                  : 'border-dashed border-social-green hover:border-social-light-green hover:scale-105'
+                  ? userStory.viewed_by_user 
+                    ? 'border-2 border-gray-300' 
+                    : 'border-0 p-0.5'
+                  : 'border-2 border-dashed border-social-green hover:border-social-light-green'
               }`}
               style={{
-                borderColor: userStory && !userStory.viewed_by_user ? themeColor : undefined,
-                borderWidth: userStory && !userStory.viewed_by_user ? '3px' : undefined
+                background: userStory && !userStory.viewed_by_user 
+                  ? createStoryGradient(themeColor)
+                  : undefined
               }}
             >
-              {currentUser?.avatar ? (
-                <AvatarImage src={currentUser.avatar} alt={currentUser.name} />
-              ) : (
-                <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
-                  {currentUser?.name?.substring(0, 2).toUpperCase() || 'U'}
-                </AvatarFallback>
-              )}
+              <div className={`${userStory && !userStory.viewed_by_user ? 'border-2 border-white rounded-full' : ''} w-full h-full`}>
+                {currentUser?.avatar ? (
+                  <AvatarImage 
+                    src={currentUser.avatar} 
+                    alt={currentUser.name} 
+                    className={userStory && !userStory.viewed_by_user ? 'rounded-full' : ''}
+                  />
+                ) : (
+                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                    {currentUser?.name?.substring(0, 2).toUpperCase() || 'U'}
+                  </AvatarFallback>
+                )}
+              </div>
             </Avatar>
             <Button
               size="icon"
@@ -308,28 +321,31 @@ const StoriesContainer = React.memo(() => {
           >
             <div className="relative">
               <Avatar 
-                className="w-12 h-12 border-2 transition-all duration-200 group-hover:scale-105"
+                className={`w-12 h-12 transition-all duration-200 group-hover:scale-105 ${
+                  userStory.viewed_by_user 
+                    ? 'border-2 border-gray-300' 
+                    : 'border-0 p-0.5'
+                }`}
                 style={{
-                  borderColor: userStory.viewed_by_user ? '#d1d5db' : themeColor,
-                  borderWidth: userStory.viewed_by_user ? '2px' : '3px'
+                  background: !userStory.viewed_by_user 
+                    ? createStoryGradient(themeColor)
+                    : undefined
                 }}
               >
-                {userStory.profiles.avatar ? (
-                  <AvatarImage src={userStory.profiles.avatar} alt={userStory.profiles.name} />
-                ) : (
-                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
-                    {userStory.profiles.name.substring(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                )}
+                <div className={`${!userStory.viewed_by_user ? 'border-2 border-white rounded-full' : ''} w-full h-full`}>
+                  {userStory.profiles.avatar ? (
+                    <AvatarImage 
+                      src={userStory.profiles.avatar} 
+                      alt={userStory.profiles.name}
+                      className={!userStory.viewed_by_user ? 'rounded-full' : ''}
+                    />
+                  ) : (
+                    <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                      {userStory.profiles.name.substring(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  )}
+                </div>
               </Avatar>
-              {!userStory.viewed_by_user && (
-                <div 
-                  className="absolute inset-0 rounded-full opacity-20"
-                  style={{
-                    background: `linear-gradient(45deg, ${themeColor}, ${themeColor}80)`
-                  }}
-                />
-              )}
             </div>
             <span className="text-xs font-pixelated text-center truncate max-w-[60px]">
               You
@@ -346,28 +362,31 @@ const StoriesContainer = React.memo(() => {
           >
             <div className="relative">
               <Avatar 
-                className="w-12 h-12 border-2 transition-all duration-200 group-hover:scale-105"
+                className={`w-12 h-12 transition-all duration-200 group-hover:scale-105 ${
+                  story.viewed_by_user 
+                    ? 'border-2 border-gray-300' 
+                    : 'border-0 p-0.5'
+                }`}
                 style={{
-                  borderColor: story.viewed_by_user ? '#d1d5db' : themeColor,
-                  borderWidth: story.viewed_by_user ? '2px' : '3px'
+                  background: !story.viewed_by_user 
+                    ? createStoryGradient(themeColor)
+                    : undefined
                 }}
               >
-                {story.profiles.avatar ? (
-                  <AvatarImage src={story.profiles.avatar} alt={story.profiles.name} />
-                ) : (
-                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
-                    {story.profiles.name.substring(0, 2).toUpperCase()}
-                  </AvatarFallback>
-                )}
+                <div className={`${!story.viewed_by_user ? 'border-2 border-white rounded-full' : ''} w-full h-full`}>
+                  {story.profiles.avatar ? (
+                    <AvatarImage 
+                      src={story.profiles.avatar} 
+                      alt={story.profiles.name}
+                      className={!story.viewed_by_user ? 'rounded-full' : ''}
+                    />
+                  ) : (
+                    <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                      {story.profiles.name.substring(0, 2).toUpperCase()}
+                    </AvatarFallback>
+                  )}
+                </div>
               </Avatar>
-              {!story.viewed_by_user && (
-                <div 
-                  className="absolute inset-0 rounded-full opacity-20"
-                  style={{
-                    background: `linear-gradient(45deg, ${themeColor}, ${themeColor}80)`
-                  }}
-                />
-              )}
             </div>
             <span className="text-xs font-pixelated text-center truncate max-w-[60px]">
               {story.profiles.name.split(' ')[0]}
