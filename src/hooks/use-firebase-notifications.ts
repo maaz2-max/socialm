@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback } from 'react';
-import { NotificationService, requestNotificationPermission } from '@/config/firebase';
 import { useToast } from '@/hooks/use-toast';
 
 interface FirebaseNotificationState {
@@ -14,117 +13,51 @@ export function useFirebaseNotifications() {
     isSupported: false,
     permission: 'default',
     token: null,
-    isInitialized: false
+    isInitialized: true
   });
   const { toast } = useToast();
 
-  // Initialize Firebase notifications
+  // Initialize Firebase notifications (disabled)
   const initialize = useCallback(async () => {
     try {
-      const isSupported = 'Notification' in window && 'serviceWorker' in navigator;
-      
-      if (!isSupported) {
-        setState(prev => ({ ...prev, isSupported: false, isInitialized: true }));
-        return;
-      }
-
-      const permission = Notification.permission;
-      const token = localStorage.getItem('fcm_token');
+      const isSupported = false; // Disabled Firebase
       
       setState(prev => ({
         ...prev,
-        isSupported: true,
-        permission,
-        token,
+        isSupported: false,
         isInitialized: true
       }));
 
-      // Initialize Firebase messaging
-      await NotificationService.initialize();
-
-      // Listen for admin broadcasts
-      const unsubscribe = NotificationService.onMessage((payload) => {
-        console.log('Firebase message received:', payload);
-        
-        // Show toast notification for admin broadcasts
-        if (payload.data?.type === 'admin_broadcast') {
-          toast({
-            title: payload.notification?.title || 'Admin Notification',
-            description: payload.notification?.body || payload.data?.message,
-            duration: 8000,
-          });
-        }
-      });
-
-      // Listen for custom admin broadcast events for in-page toast notifications
-      const handleAdminBroadcast = (event: CustomEvent) => {
-        const { title, body, data } = event.detail;
-        
-        toast({
-          title: title || 'Admin Notification',
-          description: body,
-          duration: 8000,
-        });
-      };
-
-      // Listen for admin broadcast toast events (works without notification permission)
-      const handleAdminBroadcastToast = (event: CustomEvent) => {
-        const { title, message } = event.detail;
-        
-        // Show toast notification regardless of notification permission
-        toast({
-          title: `📢 ${title}`,
-          description: message,
-          duration: 10000,
-          className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900',
-        });
-      };
-
-      window.addEventListener('adminBroadcast', handleAdminBroadcast as EventListener);
-      window.addEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
-
-      return () => {
-        unsubscribe();
-        window.removeEventListener('adminBroadcast', handleAdminBroadcast as EventListener);
-        window.removeEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
-      };
     } catch (error) {
-      console.error('Error initializing Firebase notifications:', error);
+      console.error('Firebase notifications disabled:', error);
       setState(prev => ({ ...prev, isInitialized: true }));
     }
-  }, [toast]);
+  }, []);
 
-  // Request notification permission
+  // Request notification permission (fallback to browser notifications)
   const requestPermission = useCallback(async () => {
     try {
-      const result = await requestNotificationPermission();
-      
-      if (result) {
-        setState(prev => ({
-          ...prev,
-          permission: 'granted',
-          token: typeof result === 'string' ? result : prev.token
-        }));
-
-        toast({
-          title: 'Notifications enabled!',
-          description: 'You will now receive push notifications from SocialChat.',
-          duration: 5000,
-        });
-
-        return true;
-      } else {
-        setState(prev => ({ ...prev, permission: 'denied' }));
+      if ('Notification' in window) {
+        const permission = await Notification.requestPermission();
+        setState(prev => ({ ...prev, permission }));
         
-        toast({
-          variant: 'destructive',
-          title: 'Notifications blocked',
-          description: 'Please enable notifications in your browser settings.',
-          duration: 5000,
-        });
-
-        return false;
+        if (permission === 'granted') {
+          toast({
+            title: 'Browser notifications enabled!',
+            description: 'You will now receive browser notifications.',
+            duration: 5000,
+          });
+          return true;
+        }
       }
+      
+      toast({
+        variant: 'destructive',
+        title: 'Notifications not available',
+        description: 'Your browser does not support notifications.',
+        duration: 5000,
+      });
+      return false;
     } catch (error) {
       console.error('Error requesting notification permission:', error);
       toast({
