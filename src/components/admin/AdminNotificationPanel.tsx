@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Bell, Send, LogOut, Shield, Eye, EyeOff, AlertTriangle, Zap } from 'lucide-react';
+import { Bell, Send, LogOut, Shield, Eye, EyeOff, AlertTriangle, Zap, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -24,10 +24,29 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
   const [isSending, setIsSending] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [notificationsSent, setNotificationsSent] = useState(0);
+  const [userCount, setUserCount] = useState(0);
   const { toast } = useToast();
 
   // Default admin code
   const ADMIN_CODE = 'SOCIALCHAT2025';
+
+  // Get user count
+  useEffect(() => {
+    const fetchUserCount = async () => {
+      try {
+        const { count } = await supabase
+          .from('profiles')
+          .select('*', { count: 'exact', head: true });
+        setUserCount(count || 0);
+      } catch (error) {
+        console.error('Error fetching user count:', error);
+      }
+    };
+
+    if (isAuthenticated) {
+      fetchUserCount();
+    }
+  }, [isAuthenticated]);
 
   // Auto logout after 5 minutes of inactivity
   useEffect(() => {
@@ -101,24 +120,72 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
     try {
       setIsSending(true);
 
-      // Get all users first
+      const timestamp = new Date().toISOString();
+      const titleToSend = notificationTitle.trim();
+      const messageToSend = notificationMessage.trim();
+
+      // Step 1: Create a broadcast notification record in the database
+      const { data: broadcastNotification, error: broadcastError } = await supabase
+        .from('notifications')
+        .insert({
+          user_id: '00000000-0000-0000-0000-000000000000', // Special admin user ID
+          type: 'admin_broadcast',
+          content: `${titleToSend}: ${messageToSend}`,
+          read: false,
+          created_at: timestamp,
+          reference_id: 'broadcast'
+        })
+        .select()
+        .single();
+
+      if (broadcastError) {
+        console.error('Error creating broadcast notification:', broadcastError);
+        throw new Error('Failed to create broadcast notification');
+      }
+
+      // Step 2: Use Supabase real-time to broadcast to ALL connected clients
+      const broadcastChannel = supabase.channel('admin-notifications');
+      
+      await broadcastChannel.send({
+        type: 'broadcast',
+        event: 'admin_notification',
+        payload: {
+          id: broadcastNotification.id,
+          title: titleToSend,
+          message: messageToSend,
+          timestamp: timestamp,
+          type: 'admin_broadcast'
+        }
+      });
+
+      // Step 3: Also trigger custom event for immediate local response
+      const broadcastEvent = new CustomEvent('adminBroadcastToast', {
+        detail: {
+          title: titleToSend,
+          message: messageToSend,
+          timestamp: timestamp,
+          type: 'admin_broadcast'
+        }
+      });
+      
+      window.dispatchEvent(broadcastEvent);
+
+      // Step 4: Get all users and create individual notifications for persistence
       const { data: allUsers, error: usersError } = await supabase
         .from('profiles')
         .select('id');
 
-      if (usersError) {
-        console.error('Error fetching users:', usersError);
-        throw new Error('Failed to fetch users');
-      }
+      let successCount = 0;
 
-      if (allUsers && allUsers.length > 0) {
-        // Create notifications for all users
+      if (!usersError && allUsers && allUsers.length > 0) {
+        // Create notifications for all users in batches
         const notifications = allUsers.map(user => ({
           user_id: user.id,
           type: 'admin_broadcast',
-          content: `${notificationTitle.trim()}: ${notificationMessage.trim()}`,
+          content: `${titleToSend}: ${messageToSend}`,
           read: false,
-          created_at: new Date().toISOString()
+          created_at: timestamp,
+          reference_id: broadcastNotification.id
         }));
 
         // Insert notifications in batches to avoid timeout
@@ -129,9 +196,10 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             .from('notifications')
             .insert(batch);
 
-          if (insertError) {
+          if (!insertError) {
+            successCount += batch.length;
+          } else {
             console.error('Error inserting notification batch:', insertError);
-            // Continue with other batches even if one fails
           }
         }
       }
@@ -139,49 +207,20 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
       setNotificationsSent(prev => prev + 1);
       
       toast({
-        title: '🚀 Notification sent!',
-        description: `Admin notification "${notificationTitle}" has been broadcast to all users.`,
+        title: '🚀 Notification broadcast successful!',
+        description: `Admin notification "${titleToSend}" has been sent to all ${successCount} users and will appear instantly for online users.`,
       });
 
       // Clear form
       setNotificationTitle('');
       setNotificationMessage('');
 
-      // Dispatch custom event for immediate toast notifications (works for all users without permission)
-      const broadcastEvent = new CustomEvent('adminBroadcastToast', {
-        detail: {
-          title: notificationTitle.trim(),
-          message: notificationMessage.trim(),
-          timestamp: new Date().toISOString(),
-          type: 'admin_broadcast'
-        }
-      });
-      
-      window.dispatchEvent(broadcastEvent);
-
-      // Also store in localStorage for persistence across page reloads
-      const storedNotifications = JSON.parse(localStorage.getItem('adminNotifications') || '[]');
-      storedNotifications.unshift({
-        id: Date.now().toString(),
-        title: notificationTitle.trim(),
-        message: notificationMessage.trim(),
-        timestamp: new Date().toISOString(),
-        type: 'admin_broadcast'
-      });
-      
-      // Keep only last 10 admin notifications
-      if (storedNotifications.length > 10) {
-        storedNotifications.splice(10);
-      }
-      
-      localStorage.setItem('adminNotifications', JSON.stringify(storedNotifications));
-
     } catch (error) {
       console.error('Error sending notification:', error);
       toast({
         variant: 'destructive',
         title: 'Failed to send notification',
-        description: 'There was an error sending the notification. Please try again.'
+        description: 'There was an error broadcasting the notification. Please try again.'
       });
     } finally {
       setIsSending(false);
@@ -208,7 +247,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             <Alert>
               <AlertTriangle className="h-3 w-3" />
               <AlertDescription className="font-pixelated text-xs">
-                Restricted admin area for broadcasting notifications.
+                Restricted admin area for broadcasting notifications to all users.
               </AlertDescription>
             </Alert>
 
@@ -266,7 +305,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
 
             <div className="bg-muted/50 p-2 rounded-lg">
               <p className="font-pixelated text-xs text-muted-foreground text-center">
-                Secure admin access for broadcasting notifications
+                Admin Code: <strong>SOCIALCHAT2025</strong>
               </p>
             </div>
           </div>
@@ -301,6 +340,10 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
                   <Zap className="h-3 w-3 text-orange-500" />
                   Broadcast to All Users
                 </CardTitle>
+                <div className="flex items-center gap-1 text-muted-foreground">
+                  <Users className="h-3 w-3" />
+                  <span className="font-pixelated text-xs">{userCount} registered users</span>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="space-y-1">
@@ -344,7 +387,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
                   className="w-full bg-social-green hover:bg-social-light-green text-white font-pixelated text-xs h-8"
                 >
                   <Send className="h-3 w-3 mr-1" />
-                  {isSending ? 'Sending...' : 'Send Notification'}
+                  {isSending ? 'Broadcasting...' : `Send to ${userCount} Users`}
                 </Button>
               </CardContent>
             </Card>
@@ -352,7 +395,7 @@ export function AdminNotificationPanel({ open, onOpenChange }: AdminNotification
             <Alert>
               <Bell className="h-3 w-3" />
               <AlertDescription className="font-pixelated text-xs">
-                Sends instant toast notifications to all users without requiring permissions.
+                Sends instant real-time notifications to all logged-in users. Notifications appear as toast messages and are saved to notification tabs.
               </AlertDescription>
             </Alert>
 

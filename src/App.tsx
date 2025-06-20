@@ -63,12 +63,14 @@ const App = () => {
     document.title = "SocialChat - Connect with Friends";
   }, [theme, colorTheme, setTheme, setColorTheme]);
 
-  // Listen for admin broadcast toast notifications (for ALL users)
+  // Listen for admin broadcast notifications (ONLY for authenticated users)
   useEffect(() => {
+    if (!session) return; // Only listen when user is logged in
+
     const handleAdminBroadcastToast = (event: CustomEvent) => {
       const { title, message } = event.detail;
       
-      // Show toast notification for ALL users (regardless of notification permission)
+      // Show toast notification for authenticated users only
       toast({
         title: `📢 ${title}`,
         description: message,
@@ -77,12 +79,58 @@ const App = () => {
       });
     };
 
+    // Listen for Supabase real-time admin broadcasts
+    const adminChannel = supabase.channel('admin-notifications');
+    
+    adminChannel.on('broadcast', { event: 'admin_notification' }, (payload) => {
+      console.log('Received admin broadcast:', payload);
+      
+      const { title, message, timestamp } = payload.payload;
+      
+      // Show toast notification
+      toast({
+        title: `📢 ${title}`,
+        description: message,
+        duration: 10000,
+        className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900 shadow-lg',
+      });
+
+      // Store in localStorage for notifications page
+      const storedNotifications = JSON.parse(localStorage.getItem('adminNotifications') || '[]');
+      const newNotification = {
+        id: Date.now().toString(),
+        title,
+        message,
+        timestamp,
+        type: 'admin_broadcast',
+        read: false
+      };
+      
+      storedNotifications.unshift(newNotification);
+      
+      // Keep only last 10 admin notifications
+      if (storedNotifications.length > 10) {
+        storedNotifications.splice(10);
+      }
+      
+      localStorage.setItem('adminNotifications', JSON.stringify(storedNotifications));
+
+      // Trigger custom event for notifications page
+      window.dispatchEvent(new CustomEvent('adminBroadcastToast', {
+        detail: { title, message, timestamp }
+      }));
+    });
+
+    adminChannel.subscribe();
+
+    // Also listen for custom events (fallback)
     window.addEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
 
     return () => {
+      supabase.removeChannel(adminChannel);
       window.removeEventListener('adminBroadcastToast', handleAdminBroadcastToast as EventListener);
     };
-  }, [toast]);
+  }, [toast, session]); // Only run when session exists
   
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(

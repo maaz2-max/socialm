@@ -362,14 +362,6 @@ export function Notifications() {
     const handleAdminBroadcastToast = (event: CustomEvent) => {
       const { title, message, timestamp } = event.detail;
       
-      // Show toast notification for admin broadcasts
-      toast({
-        title: `📢 ${title}`,
-        description: message,
-        duration: 10000,
-        className: 'border-l-4 border-l-orange-500 bg-orange-50 text-orange-900 shadow-lg',
-      });
-
       // Add to admin notifications list
       const newAdminNotification: AdminNotification = {
         id: Date.now().toString(),
