@@ -7,7 +7,8 @@ import {
   Bell, 
   User,
   Menu,
-  LogOut
+  LogOut,
+  Hash
 } from 'lucide-react';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
@@ -129,6 +130,7 @@ export function MobileHeader() {
 
   const tabs: MobileTab[] = [
     { path: '/dashboard', label: 'Home', icon: <Home className="h-5 w-5" /> },
+    { path: '/communities', label: 'Communities', icon: <Hash className="h-5 w-5" /> },
     { path: '/friends', label: 'Friends', icon: <Users className="h-5 w-5" /> },
     { path: '/messages', label: 'Messages', icon: <MessageSquare className="h-5 w-5" /> },
     { 
@@ -148,10 +150,14 @@ export function MobileHeader() {
         </div>
       )
     },
-    { path: '/profile', label: 'Profile', icon: <User className="h-5 w-5" /> },
   ];
 
-  const isActive = (path: string) => location.pathname === path;
+  const isActive = (path: string) => {
+    if (path === '/communities') {
+      return location.pathname.startsWith('/communities');
+    }
+    return location.pathname === path;
+  };
 
   return (
     <>
@@ -222,6 +228,22 @@ export function MobileHeader() {
                         )}
                       </div>
                     ))}
+                    
+                    {/* Profile Link */}
+                    <div
+                      onClick={() => {
+                        setOpen(false);
+                        handleTabClick('/profile');
+                      }}
+                      className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-pixelated transition-all duration-200 hover-scale cursor-pointer ${
+                        location.pathname === '/profile'
+                          ? 'bg-social-dark-green text-white shadow-md'
+                          : 'hover:bg-muted/50'
+                      }`}
+                    >
+                      <User className="h-5 w-5" />
+                      <span>Profile</span>
+                    </div>
                   </div>
                 </div>
 

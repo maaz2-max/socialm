@@ -15,6 +15,8 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
+import Communities from "./pages/Communities";
+import CommunityChat from "./pages/CommunityChat";
 import Friends from "./pages/Friends";
 import Messages from "./pages/Messages";
 import Notifications from "./pages/Notifications";
@@ -128,6 +130,22 @@ const App = () => {
                 element={
                   <AuthGuard>
                     <Dashboard />
+                  </AuthGuard>
+                } 
+              />
+              <Route 
+                path="/communities" 
+                element={
+                  <AuthGuard>
+                    <Communities />
+                  </AuthGuard>
+                } 
+              />
+              <Route 
+                path="/communities/:communityId/chat" 
+                element={
+                  <AuthGuard>
+                    <CommunityChat />
                   </AuthGuard>
                 } 
               />
