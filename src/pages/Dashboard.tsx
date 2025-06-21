@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
-import { OptimizedCommunityFeed } from '@/components/dashboard/OptimizedCommunityFeed';
-import { OptimizedStoriesContainer } from '@/components/stories/OptimizedStoriesContainer';
+import { CommunityFeed } from '@/components/dashboard/CommunityFeed';
+import { StoriesContainer } from '@/components/stories/StoriesContainer';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -10,9 +10,6 @@ import { Send, Image as ImageIcon, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { usePerformanceMonitor } from '@/hooks/use-performance-monitor';
-import { useDebouncedCallback } from '@/hooks/use-debounced-callback';
-import { PerformanceUtils } from '@/utils/performance-utils';
 
 export function Dashboard() {
   const [postContent, setPostContent] = useState('');
@@ -24,24 +21,16 @@ export function Dashboard() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const postBoxRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
-  const { measureRenderTime, measureMemoryUsage } = usePerformanceMonitor();
-
-  // Monitor performance
-  useEffect(() => {
-    const cleanup = measureRenderTime('Dashboard');
-    measureMemoryUsage();
-    return cleanup;
-  }, [measureRenderTime, measureMemoryUsage]);
 
   // Optimized scroll to top handler
-  const handleScrollToTop = useDebouncedCallback(() => {
+  const handleScrollToTop = useCallback(() => {
     if (scrollAreaRef.current) {
       scrollAreaRef.current.scrollTo({
         top: 0,
         behavior: 'smooth'
       });
     }
-  }, 100);
+  }, []);
 
   useEffect(() => {
     // Listen for scroll to top events
@@ -181,7 +170,7 @@ export function Dashboard() {
             </div>
           }
         >
-          <OptimizedStoriesContainer />
+          <StoriesContainer />
         </ErrorBoundary>
         
         {/* Scrollable Content Area */}
@@ -256,7 +245,7 @@ export function Dashboard() {
             </CardContent>
           </Card>
           
-          {/* Optimized Feed with error boundary */}
+          {/* Community Feed with error boundary */}
           <ErrorBoundary
             fallback={
               <Card className="text-center py-8">
@@ -268,7 +257,7 @@ export function Dashboard() {
               </Card>
             }
           >
-            <OptimizedCommunityFeed key={feedKey} />
+            <CommunityFeed key={feedKey} />
           </ErrorBoundary>
         </ScrollArea>
       </div>
