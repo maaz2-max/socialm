@@ -175,157 +175,220 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
     }
   }, []);
 
-  // Silent background fetch without loading states
-  const fetchPostsInBackground = useCallback(async () => {
+  // Robust post fetching with multiple fallback strategies
+  const fetchPostsRobust = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) return [];
 
-      // Build the base query - simplified to avoid missing columns
-      let query = supabase
-        .from('posts')
-        .select(`
-          id,
-          content,
-          image_url,
-          created_at,
-          user_id,
-          profiles:user_id (
-            name,
-            username,
-            avatar
-          ),
-          likes (
-            id,
-            user_id
-          ),
-          comments (
+      // Strategy 1: Try with all columns
+      try {
+        let query = supabase
+          .from('posts')
+          .select(`
             id,
             content,
+            image_url,
+            created_at,
+            user_id,
+            comments_disabled,
+            visibility,
+            profiles:user_id (
+              name,
+              username,
+              avatar
+            ),
+            likes (
+              id,
+              user_id
+            ),
+            comments (
+              id,
+              content,
+              created_at,
+              user_id,
+              profiles:user_id (
+                name,
+                avatar
+              )
+            )
+          `)
+          .order('created_at', { ascending: false });
+
+        // Apply filtering based on feed type
+        if (feedType === 'friends') {
+          const friendIdsArray = Array.from(friendIds);
+          if (friendIdsArray.length === 0) {
+            return [];
+          }
+          query = query.in('user_id', friendIdsArray);
+        }
+
+        const { data, error } = await query;
+
+        if (!error && data) {
+          return data.map(post => ({
+            ...post,
+            comments_disabled: post.comments_disabled || false,
+            visibility: post.visibility || 'public',
+            _count: {
+              likes: post.likes?.length || 0,
+              comments: post.comments?.length || 0
+            }
+          }));
+        }
+      } catch (error) {
+        console.warn('Strategy 1 failed, trying fallback:', error);
+      }
+
+      // Strategy 2: Try without optional columns
+      try {
+        let query = supabase
+          .from('posts')
+          .select(`
+            id,
+            content,
+            image_url,
             created_at,
             user_id,
             profiles:user_id (
               name,
+              username,
               avatar
+            ),
+            likes (
+              id,
+              user_id
+            ),
+            comments (
+              id,
+              content,
+              created_at,
+              user_id,
+              profiles:user_id (
+                name,
+                avatar
+              )
             )
-          )
-        `)
-        .order('created_at', { ascending: false });
+          `)
+          .order('created_at', { ascending: false });
 
-      // Apply filtering based on feed type
-      if (feedType === 'friends') {
-        // Only show posts from friends
-        const friendIdsArray = Array.from(friendIds);
-        if (friendIdsArray.length === 0) {
-          // No friends, show empty feed
-          setPosts([]);
-          return;
+        // Apply filtering based on feed type
+        if (feedType === 'friends') {
+          const friendIdsArray = Array.from(friendIds);
+          if (friendIdsArray.length === 0) {
+            return [];
+          }
+          query = query.in('user_id', friendIdsArray);
         }
-        query = query.in('user_id', friendIdsArray);
-      }
-      // For 'all' feedType, show all posts (no additional filtering needed)
 
-      const { data, error } = await query;
+        const { data, error } = await query;
 
-      if (error) {
-        console.warn('Error fetching posts:', error);
-        return;
-      }
-
-      const formattedPosts = data?.map(post => ({
-        ...post,
-        comments_disabled: false, // Default value since column might not exist
-        visibility: 'public', // Default value
-        _count: {
-          likes: post.likes?.length || 0,
-          comments: post.comments?.length || 0
+        if (!error && data) {
+          return data.map(post => ({
+            ...post,
+            comments_disabled: false, // Default value
+            visibility: 'public', // Default value
+            _count: {
+              likes: post.likes?.length || 0,
+              comments: post.comments?.length || 0
+            }
+          }));
         }
-      })) || [];
+      } catch (error) {
+        console.warn('Strategy 2 failed, trying minimal fallback:', error);
+      }
 
-      // Smoothly update posts without any loading indicators
-      setPosts(formattedPosts);
+      // Strategy 3: Minimal query as last resort
+      try {
+        let query = supabase
+          .from('posts')
+          .select(`
+            id,
+            content,
+            image_url,
+            created_at,
+            user_id
+          `)
+          .order('created_at', { ascending: false });
+
+        // Apply filtering based on feed type
+        if (feedType === 'friends') {
+          const friendIdsArray = Array.from(friendIds);
+          if (friendIdsArray.length === 0) {
+            return [];
+          }
+          query = query.in('user_id', friendIdsArray);
+        }
+
+        const { data, error } = await query;
+
+        if (!error && data) {
+          // Fetch additional data separately
+          const postsWithProfiles = await Promise.all(
+            data.map(async (post) => {
+              // Get profile data
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('name, username, avatar')
+                .eq('id', post.user_id)
+                .single();
+
+              // Get likes count
+              const { count: likesCount } = await supabase
+                .from('likes')
+                .select('*', { count: 'exact', head: true })
+                .eq('post_id', post.id);
+
+              // Get comments count
+              const { count: commentsCount } = await supabase
+                .from('comments')
+                .select('*', { count: 'exact', head: true })
+                .eq('post_id', post.id);
+
+              return {
+                ...post,
+                comments_disabled: false,
+                visibility: 'public',
+                profiles: profile || { name: 'Unknown User', username: 'unknown', avatar: null },
+                likes: [],
+                comments: [],
+                _count: {
+                  likes: likesCount || 0,
+                  comments: commentsCount || 0
+                }
+              };
+            })
+          );
+
+          return postsWithProfiles;
+        }
+      } catch (error) {
+        console.error('All strategies failed:', error);
+      }
+
+      return [];
     } catch (error) {
-      console.error('Background fetch error:', error);
-      // Don't show error toast for background updates to avoid interrupting user
+      console.error('Error in fetchPostsRobust:', error);
+      return [];
     }
   }, [feedType, friendIds]);
 
-  // Initial fetch with loading state (only on first load)
+  // Silent background fetch without loading states
+  const fetchPostsInBackground = useCallback(async () => {
+    try {
+      const formattedPosts = await fetchPostsRobust();
+      setPosts(formattedPosts);
+    } catch (error) {
+      console.error('Background fetch error:', error);
+    }
+  }, [fetchPostsRobust]);
+
+  // Initial fetch with loading state
   const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
-
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Build the base query - simplified to avoid missing columns
-      let query = supabase
-        .from('posts')
-        .select(`
-          id,
-          content,
-          image_url,
-          created_at,
-          user_id,
-          profiles:user_id (
-            name,
-            username,
-            avatar
-          ),
-          likes (
-            id,
-            user_id
-          ),
-          comments (
-            id,
-            content,
-            created_at,
-            user_id,
-            profiles:user_id (
-              name,
-              avatar
-            )
-          )
-        `)
-        .order('created_at', { ascending: false });
-
-      // Apply filtering based on feed type
-      if (feedType === 'friends') {
-        // Only show posts from friends
-        const friendIdsArray = Array.from(friendIds);
-        if (friendIdsArray.length === 0) {
-          // No friends, show empty feed
-          setPosts([]);
-          setLoading(false);
-          return;
-        }
-        query = query.in('user_id', friendIdsArray);
-      }
-      // For 'all' feedType, show all posts (no additional filtering needed)
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error fetching posts:', error);
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: 'Failed to load posts. Please refresh the page.'
-        });
-        setPosts([]);
-        return;
-      }
-
-      const formattedPosts = data?.map(post => ({
-        ...post,
-        comments_disabled: false, // Default value since column might not exist
-        visibility: 'public', // Default value
-        _count: {
-          likes: post.likes?.length || 0,
-          comments: post.comments?.length || 0
-        }
-      })) || [];
-
+      const formattedPosts = await fetchPostsRobust();
       setPosts(formattedPosts);
     } catch (error) {
       console.error('Error fetching posts:', error);
@@ -338,7 +401,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
     } finally {
       setLoading(false);
     }
-  }, [toast, feedType, friendIds]);
+  }, [fetchPostsRobust, toast]);
 
   const getCurrentUser = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
