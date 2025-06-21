@@ -6,7 +6,8 @@ import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Send, Image as ImageIcon, X, MessageSquareOff } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Send, Image as ImageIcon, X, MessageSquareOff, Users, Globe } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -20,6 +21,7 @@ export function Dashboard() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [feedKey, setFeedKey] = useState(0);
   const [commentsDisabled, setCommentsDisabled] = useState(false);
+  const [activeTab, setActiveTab] = useState('for-you');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const postBoxRef = useRef<HTMLDivElement>(null);
@@ -263,21 +265,60 @@ export function Dashboard() {
               </div>
             </CardContent>
           </Card>
-          
-          {/* Community Feed with error boundary */}
-          <ErrorBoundary
-            fallback={
-              <Card className="text-center py-8">
-                <CardContent>
-                  <p className="font-pixelated text-sm text-muted-foreground">
-                    Unable to load posts. Please refresh the page.
-                  </p>
-                </CardContent>
-              </Card>
-            }
-          >
-            <CommunityFeed key={feedKey} />
-          </ErrorBoundary>
+
+          {/* Feed Tabs */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
+            <TabsList className="grid w-full grid-cols-2 bg-muted/50 rounded-lg p-1">
+              <TabsTrigger 
+                value="for-you" 
+                className="font-pixelated text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all duration-200 flex items-center gap-2"
+              >
+                <Globe className="h-4 w-4" />
+                For You
+              </TabsTrigger>
+              <TabsTrigger 
+                value="friends" 
+                className="font-pixelated text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all duration-200 flex items-center gap-2"
+              >
+                <Users className="h-4 w-4" />
+                Friends
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="for-you" className="mt-4">
+              {/* Community Feed with error boundary - All Posts */}
+              <ErrorBoundary
+                fallback={
+                  <Card className="text-center py-8">
+                    <CardContent>
+                      <p className="font-pixelated text-sm text-muted-foreground">
+                        Unable to load posts. Please refresh the page.
+                      </p>
+                    </CardContent>
+                  </Card>
+                }
+              >
+                <CommunityFeed key={`all-${feedKey}`} feedType="all" />
+              </ErrorBoundary>
+            </TabsContent>
+
+            <TabsContent value="friends" className="mt-4">
+              {/* Community Feed with error boundary - Friends Only */}
+              <ErrorBoundary
+                fallback={
+                  <Card className="text-center py-8">
+                    <CardContent>
+                      <p className="font-pixelated text-sm text-muted-foreground">
+                        Unable to load friends' posts. Please refresh the page.
+                      </p>
+                    </CardContent>
+                  </Card>
+                }
+              >
+                <CommunityFeed key={`friends-${feedKey}`} feedType="friends" />
+              </ErrorBoundary>
+            </TabsContent>
+          </Tabs>
         </ScrollArea>
       </div>
     </DashboardLayout>

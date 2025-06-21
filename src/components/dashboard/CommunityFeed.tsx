@@ -67,7 +67,11 @@ interface Comment {
   };
 }
 
-export function CommunityFeed() {
+interface CommunityFeedProps {
+  feedType?: 'all' | 'friends';
+}
+
+export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -85,6 +89,7 @@ export function CommunityFeed() {
   const [showCommentBox, setShowCommentBox] = useState<{ [key: string]: boolean }>({});
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [showUserDialog, setShowUserDialog] = useState(false);
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   const feedRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const { toast } = useToast();
@@ -137,10 +142,42 @@ export function CommunityFeed() {
     }
   };
 
+  // Fetch user's friends
+  const fetchFriends = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: friendsData, error } = await supabase
+        .from('friends')
+        .select('sender_id, receiver_id')
+        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+        .eq('status', 'accepted');
+
+      if (error) throw error;
+
+      const friendsSet = new Set<string>();
+      friendsData?.forEach(friendship => {
+        if (friendship.sender_id === user.id) {
+          friendsSet.add(friendship.receiver_id);
+        } else {
+          friendsSet.add(friendship.sender_id);
+        }
+      });
+
+      setFriendIds(friendsSet);
+    } catch (error) {
+      console.error('Error fetching friends:', error);
+    }
+  }, []);
+
   // Silent background fetch without loading states
   const fetchPostsInBackground = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      let query = supabase
         .from('posts')
         .select(`
           id,
@@ -170,6 +207,21 @@ export function CommunityFeed() {
           )
         `)
         .order('created_at', { ascending: false });
+
+      // Apply filtering based on feed type
+      if (feedType === 'friends') {
+        // Only show posts from friends
+        const friendIdsArray = Array.from(friendIds);
+        if (friendIdsArray.length === 0) {
+          // No friends, show empty feed
+          setPosts([]);
+          return;
+        }
+        query = query.in('user_id', friendIdsArray);
+      }
+      // For 'all' feedType, show all posts (no additional filtering needed)
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -187,14 +239,17 @@ export function CommunityFeed() {
       console.error('Background fetch error:', error);
       // Don't show error toast for background updates to avoid interrupting user
     }
-  }, []);
+  }, [feedType, friendIds]);
 
   // Initial fetch with loading state (only on first load)
   const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
 
-      const { data, error } = await supabase
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      let query = supabase
         .from('posts')
         .select(`
           id,
@@ -224,6 +279,22 @@ export function CommunityFeed() {
           )
         `)
         .order('created_at', { ascending: false });
+
+      // Apply filtering based on feed type
+      if (feedType === 'friends') {
+        // Only show posts from friends
+        const friendIdsArray = Array.from(friendIds);
+        if (friendIdsArray.length === 0) {
+          // No friends, show empty feed
+          setPosts([]);
+          setLoading(false);
+          return;
+        }
+        query = query.in('user_id', friendIdsArray);
+      }
+      // For 'all' feedType, show all posts (no additional filtering needed)
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -246,7 +317,7 @@ export function CommunityFeed() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, feedType, friendIds]);
 
   const getCurrentUser = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -481,12 +552,9 @@ export function CommunityFeed() {
       setDeleteCommentId(null);
       setDeleteCommentContext(null);
 
-      const isPostOwner = deleteCommentContext?.isPostOwner;
       toast({
         title: 'Comment deleted',
-        description: isPostOwner 
-          ? 'The comment has been removed from your post'
-          : 'Your comment has been deleted successfully'
+        description: 'Your comment has been deleted successfully'
       });
     } catch (error) {
       console.error('Error deleting comment:', error);
@@ -546,51 +614,57 @@ export function CommunityFeed() {
 
   useEffect(() => {
     getCurrentUser();
-    fetchPosts();
+    fetchFriends();
+  }, [getCurrentUser, fetchFriends]);
 
-    // Set up real-time subscriptions for seamless background updates
-    const postsChannel = supabase
-      .channel('posts-realtime')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'posts' }, 
-        (payload) => {
-          console.log('Post change detected:', payload);
-          // Use background fetch to avoid loading indicators
-          fetchPostsInBackground();
-        }
-      )
-      .subscribe();
+  useEffect(() => {
+    if (currentUser && (feedType === 'all' || friendIds.size > 0)) {
+      fetchPosts();
+      
+      // Set up real-time subscriptions for seamless background updates
+      const postsChannel = supabase
+        .channel('posts-realtime')
+        .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'posts' }, 
+          (payload) => {
+            console.log('Post change detected:', payload);
+            // Use background fetch to avoid loading indicators
+            fetchPostsInBackground();
+          }
+        )
+        .subscribe();
 
-    const likesChannel = supabase
-      .channel('likes-realtime')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'likes' }, 
-        (payload) => {
-          console.log('Like change detected:', payload);
-          // Use background fetch to avoid loading indicators
-          fetchPostsInBackground();
-        }
-      )
-      .subscribe();
+      const likesChannel = supabase
+        .channel('likes-realtime')
+        .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'likes' }, 
+          (payload) => {
+            console.log('Like change detected:', payload);
+            // Use background fetch to avoid loading indicators
+            fetchPostsInBackground();
+          }
+        )
+        .subscribe();
 
-    const commentsChannel = supabase
-      .channel('comments-realtime')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'comments' }, 
-        (payload) => {
-          console.log('Comment change detected:', payload);
-          // Use background fetch to avoid loading indicators
-          fetchPostsInBackground();
-        }
-      )
-      .subscribe();
+      const commentsChannel = supabase
+        .channel('comments-realtime')
+        .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'comments' }, 
+          (payload) => {
+            console.log('Comment change detected:', payload);
+            // Use background fetch to avoid loading indicators
+            fetchPostsInBackground();
+          }
+        )
+        .subscribe();
 
-    return () => {
-      supabase.removeChannel(postsChannel);
-      supabase.removeChannel(likesChannel);
-      supabase.removeChannel(commentsChannel);
-    };
-  }, [getCurrentUser, fetchPosts, fetchPostsInBackground]);
+      return () => {
+        supabase.removeChannel(postsChannel);
+        supabase.removeChannel(likesChannel);
+        supabase.removeChannel(commentsChannel);
+      };
+    }
+  }, [currentUser, fetchPosts, fetchPostsInBackground, feedType, friendIds]);
 
   useEffect(() => {
     const feedElement = feedRef.current;
@@ -645,9 +719,14 @@ export function CommunityFeed() {
         <Card className="text-center py-12 card-entrance">
           <CardContent>
             <MessageCircle className="h-16 w-16 text-muted-foreground mx-auto mb-4 animate-float" />
-            <h3 className="font-pixelated text-sm font-medium mb-2">No posts yet</h3>
+            <h3 className="font-pixelated text-sm font-medium mb-2">
+              {feedType === 'friends' ? 'No posts from friends yet' : 'No posts yet'}
+            </h3>
             <p className="font-pixelated text-xs text-muted-foreground">
-              Be the first to share something with the community!
+              {feedType === 'friends' 
+                ? 'When your friends share posts, they\'ll appear here!'
+                : 'Be the first to share something with the community!'
+              }
             </p>
           </CardContent>
         </Card>
