@@ -25,10 +25,24 @@ interface Story {
   viewed?: boolean; // Track if current user has viewed this story
 }
 
-// Local cache for better performance
+// Enhanced local cache for better performance
 const storyCache = new Map();
 const profileCache = new Map();
 const viewCache = new Map();
+
+// Cache cleanup utility
+const cleanupCache = () => {
+  const now = Date.now();
+  const maxAge = 5 * 60 * 1000; // 5 minutes
+  
+  [storyCache, profileCache, viewCache].forEach(cache => {
+    for (const [key, value] of cache.entries()) {
+      if (value.timestamp && now - value.timestamp > maxAge) {
+        cache.delete(key);
+      }
+    }
+  });
+};
 
 const StoriesContainer = React.memo(() => {
   const [stories, setStories] = useState<Story[]>([]);
@@ -44,7 +58,7 @@ const StoriesContainer = React.memo(() => {
   const [viewedStories, setViewedStories] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
-  // Optimized batch fetch with caching
+  // Enhanced fetch with better error handling and profile picture loading
   const fetchStoriesOptimized = useCallback(async () => {
     try {
       // Check cache first
@@ -57,14 +71,17 @@ const StoriesContainer = React.memo(() => {
         return;
       }
 
-      // Cleanup expired photos (run in background) - Fixed RPC call
+      // Cleanup expired photos (run in background with proper error handling)
       try {
-        await supabase.rpc('cleanup_expired_story_photos');
+        const { error: cleanupError } = await supabase.rpc('cleanup_expired_story_photos');
+        if (cleanupError) {
+          console.warn('Cleanup function not available:', cleanupError);
+        }
       } catch (error) {
-        console.error('Error cleaning up expired stories:', error);
+        console.warn('Story cleanup skipped:', error);
       }
 
-      // Fetch stories with profiles in single query
+      // Fetch stories with profiles - enhanced query with better error handling
       const { data, error } = await supabase
         .from('stories')
         .select(`
@@ -85,24 +102,30 @@ const StoriesContainer = React.memo(() => {
         .gt('expires_at', new Date().toISOString())
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Stories fetch error:', error);
+        throw error;
+      }
+
+      // Process stories with enhanced profile handling
+      const processedStories = data?.map(story => ({
+        ...story,
+        profiles: story.profiles || {
+          name: 'Unknown User',
+          username: 'unknown',
+          avatar: null
+        }
+      })) || [];
 
       // Group stories by user and keep only the latest story per user
-      const groupedStories = data?.reduce((acc: Record<string, Story>, story: any) => {
+      const groupedStories = processedStories.reduce((acc: Record<string, Story>, story: any) => {
         if (!acc[story.user_id] || new Date(story.created_at) > new Date(acc[story.user_id].created_at)) {
-          acc[story.user_id] = {
-            ...story,
-            profiles: story.profiles || {
-              name: 'Unknown User',
-              username: 'unknown',
-              avatar: null
-            }
-          };
+          acc[story.user_id] = story;
         }
         return acc;
       }, {});
 
-      const storiesArray = Object.values(groupedStories || []);
+      const storiesArray = Object.values(groupedStories);
       
       // Batch fetch viewed stories if user is logged in
       if (currentUser && storiesArray.length > 0) {
@@ -116,28 +139,42 @@ const StoriesContainer = React.memo(() => {
         if (cachedViews && Date.now() - cachedViews.timestamp < 60000) { // 1 minute cache
           viewedIds = cachedViews.data;
         } else {
-          // Fetch from database
-          const { data: viewData } = await supabase
-            .from('story_views')
-            .select('story_id')
-            .eq('viewer_id', currentUser.id)
-            .in('story_id', storyIds);
+          // Fetch from database with error handling
+          try {
+            const { data: viewData, error: viewError } = await supabase
+              .from('story_views')
+              .select('story_id')
+              .eq('viewer_id', currentUser.id)
+              .in('story_id', storyIds);
 
-          viewedIds = new Set(viewData?.map(v => v.story_id) || []);
-          
-          // Cache the results
-          viewCache.set(viewCacheKey, {
-            data: viewedIds,
-            timestamp: Date.now()
-          });
+            if (viewError) {
+              console.warn('Story views fetch error:', viewError);
+            } else {
+              viewedIds = new Set(viewData?.map(v => v.story_id) || []);
+              
+              // Cache the results
+              viewCache.set(viewCacheKey, {
+                data: viewedIds,
+                timestamp: Date.now()
+              });
+            }
+          } catch (error) {
+            console.warn('Story views fetch failed:', error);
+          }
         }
 
         setViewedStories(viewedIds);
 
-        // Mark stories as viewed
+        // Mark stories as viewed and ensure profile pictures are properly loaded
         const storiesWithViewStatus = storiesArray.map(story => ({
           ...story,
-          viewed: viewedIds.has(story.id)
+          viewed: viewedIds.has(story.id),
+          // Ensure profile data is properly structured
+          profiles: {
+            name: story.profiles?.name || 'Unknown User',
+            username: story.profiles?.username || 'unknown',
+            avatar: story.profiles?.avatar || null
+          }
         }));
 
         // Cache the results
@@ -148,21 +185,33 @@ const StoriesContainer = React.memo(() => {
 
         setStories(storiesWithViewStatus);
       } else {
+        // For anonymous users, ensure profile data is structured
+        const storiesWithProfiles = storiesArray.map(story => ({
+          ...story,
+          profiles: {
+            name: story.profiles?.name || 'Unknown User',
+            username: story.profiles?.username || 'unknown',
+            avatar: story.profiles?.avatar || null
+          }
+        }));
+
         // Cache the results for anonymous users
         storyCache.set(cacheKey, {
-          data: storiesArray,
+          data: storiesWithProfiles,
           timestamp: Date.now()
         });
         
-        setStories(storiesArray);
+        setStories(storiesWithProfiles);
       }
     } catch (error) {
       console.error('Error fetching stories:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to load stories',
+        description: 'Failed to load stories. Please try again.',
       });
+      // Set empty array on error to prevent infinite loading
+      setStories([]);
     } finally {
       setLoading(false);
     }
@@ -177,14 +226,33 @@ const StoriesContainer = React.memo(() => {
         return;
       }
 
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError) {
+        console.error('Auth error:', userError);
+        return;
+      }
+
       if (user) {
-        const { data: profile } = await supabase
+        const { data: profile, error: profileError } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
           .single();
         
+        if (profileError) {
+          console.error('Profile fetch error:', profileError);
+          // Use basic user data if profile fetch fails
+          const basicProfile = {
+            id: user.id,
+            name: user.email?.split('@')[0] || 'User',
+            username: user.email?.split('@')[0] || 'user',
+            avatar: null,
+            email: user.email
+          };
+          setCurrentUser(basicProfile);
+          return;
+        }
+
         if (profile) {
           // Cache the profile
           profileCache.set('currentUser', {
@@ -226,8 +294,8 @@ const StoriesContainer = React.memo(() => {
             
             // Optimistic update for better performance
             if (payload.eventType === 'INSERT') {
-              // Fetch fresh data
-              setTimeout(() => fetchStoriesOptimized(), 500);
+              // Fetch fresh data with delay to allow for profile data to be available
+              setTimeout(() => fetchStoriesOptimized(), 1000);
             } else if (payload.eventType === 'UPDATE') {
               setStories(prevStories => 
                 prevStories.map(story => 
@@ -250,9 +318,13 @@ const StoriesContainer = React.memo(() => {
         fetchStoriesOptimized();
       }, 120000);
 
+      // Cache cleanup every 5 minutes
+      const cleanupInterval = setInterval(cleanupCache, 300000);
+
       return () => {
         supabase.removeChannel(channel);
         clearInterval(refreshInterval);
+        clearInterval(cleanupInterval);
       };
     }
   }, [currentUser, fetchStoriesOptimized]);
@@ -288,12 +360,17 @@ const StoriesContainer = React.memo(() => {
           supabase.rpc('increment_story_views', {
             story_uuid: story.id,
             viewer_uuid: currentUser?.id
+          }).catch(error => {
+            console.warn('Story view increment failed:', error);
           }),
           supabase
             .from('story_views')
             .insert({
               story_id: story.id,
               viewer_id: currentUser?.id
+            })
+            .catch(error => {
+              console.warn('Story view insert failed:', error);
             })
         ]).catch(error => {
           console.error('Error tracking story view:', error);
@@ -334,11 +411,11 @@ const StoriesContainer = React.memo(() => {
 
   if (loading) {
     return (
-      <div className="flex gap-3 p-4 overflow-x-auto">
+      <div className="flex gap-3 p-4 overflow-x-auto story-container">
         {[...Array(5)].map((_, i) => (
-          <div key={i} className="flex flex-col items-center gap-2 min-w-[70px]">
+          <div key={i} className="flex flex-col items-center gap-2 min-w-[70px] story-item">
             <div className="w-16 h-16 rounded-full bg-muted animate-pulse story-shimmer" />
-            <div className="w-12 h-3 bg-muted rounded animate-pulse" />
+            <div className="w-12 h-3 bg-muted rounded animate-pulse story-shimmer" />
           </div>
         ))}
       </div>
@@ -359,9 +436,13 @@ const StoriesContainer = React.memo(() => {
               {currentUser?.avatar ? (
                 <AvatarImage 
                   src={currentUser.avatar} 
-                  alt={currentUser.name} 
+                  alt={currentUser.name || 'User'} 
                   className="story-image"
                   loading="eager"
+                  onError={(e) => {
+                    console.warn('Current user avatar failed to load:', currentUser.avatar);
+                    e.currentTarget.style.display = 'none';
+                  }}
                 />
               ) : (
                 <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-sm story-fallback">
@@ -393,9 +474,13 @@ const StoriesContainer = React.memo(() => {
                 {userStory.profiles?.avatar ? (
                   <AvatarImage 
                     src={userStory.profiles.avatar} 
-                    alt={userStory.profiles.name} 
+                    alt={userStory.profiles.name || 'User'} 
                     className="story-image"
                     loading="eager"
+                    onError={(e) => {
+                      console.warn('User story avatar failed to load:', userStory.profiles?.avatar);
+                      e.currentTarget.style.display = 'none';
+                    }}
                   />
                 ) : (
                   <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-sm story-fallback">
@@ -425,9 +510,13 @@ const StoriesContainer = React.memo(() => {
                 {story.profiles?.avatar ? (
                   <AvatarImage 
                     src={story.profiles.avatar} 
-                    alt={story.profiles.name} 
+                    alt={story.profiles.name || 'User'} 
                     className="story-image"
                     loading="eager"
+                    onError={(e) => {
+                      console.warn('Story avatar failed to load:', story.profiles?.avatar);
+                      e.currentTarget.style.display = 'none';
+                    }}
                   />
                 ) : (
                   <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-sm story-fallback">

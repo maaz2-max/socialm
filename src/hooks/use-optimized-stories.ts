@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { CacheManager, OptimizedQueries, BatchOperations, BackgroundSync } from '@/utils/databaseOptimizations';
+import { CacheManager, OptimizedQueries, BatchOperations, BackgroundSync, ErrorHandler } from '@/utils/databaseOptimizations';
 import { useToast } from '@/hooks/use-toast';
 
 interface Story {
@@ -24,13 +24,20 @@ export function useOptimizedStories(currentUser: any) {
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewedStories, setViewedStories] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const cache = CacheManager.getInstance();
 
   const fetchStories = useCallback(async () => {
     try {
-      // Get stories with profiles
-      const storiesData = await OptimizedQueries.getStoriesWithProfiles(currentUser?.id);
+      setError(null);
+      
+      // Get stories with profiles using optimized query
+      const storiesData = await ErrorHandler.withRetry(
+        () => OptimizedQueries.getStoriesWithProfiles(currentUser?.id),
+        3,
+        'fetch stories'
+      );
       
       // Group by user (keep latest story per user)
       const groupedStories = storiesData.reduce((acc: Record<string, Story>, story: any) => {
@@ -52,28 +59,49 @@ export function useOptimizedStories(currentUser: any) {
       // Get viewed stories if user is logged in
       if (currentUser && storiesArray.length > 0) {
         const storyIds = storiesArray.map(s => s.id);
-        const viewedIds = await OptimizedQueries.getViewedStories(currentUser.id, storyIds);
-        const viewedSet = new Set(viewedIds);
         
-        setViewedStories(viewedSet);
-        
-        // Mark stories as viewed
-        const storiesWithViewStatus = storiesArray.map(story => ({
-          ...story,
-          viewed: viewedSet.has(story.id)
-        }));
-        
-        setStories(storiesWithViewStatus);
+        try {
+          const viewedIds = await ErrorHandler.withRetry(
+            () => OptimizedQueries.getViewedStories(currentUser.id, storyIds),
+            2,
+            'fetch viewed stories'
+          );
+          
+          const viewedSet = new Set(viewedIds);
+          setViewedStories(viewedSet);
+          
+          // Mark stories as viewed
+          const storiesWithViewStatus = storiesArray.map(story => ({
+            ...story,
+            viewed: viewedSet.has(story.id)
+          }));
+          
+          setStories(storiesWithViewStatus);
+        } catch (viewError) {
+          console.warn('Failed to fetch viewed stories, continuing without view status:', viewError);
+          setStories(storiesArray);
+        }
       } else {
         setStories(storiesArray);
       }
     } catch (error) {
       console.error('Error fetching stories:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to load stories',
-      });
+      setError('Failed to load stories');
+      
+      // Show user-friendly error message
+      if (ErrorHandler.isNetworkError(error)) {
+        toast({
+          variant: 'destructive',
+          title: 'Network Error',
+          description: 'Please check your internet connection and try again.',
+        });
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Failed to load stories. Please try again.',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -97,7 +125,18 @@ export function useOptimizedStories(currentUser: any) {
     // Update cache
     cache.set(`viewed_stories_${currentUser.id}`, newViewedStories, 60000);
 
-    // Background database updates
+    // Add to batch operations for better performance
+    BatchOperations.addToBatch('story_views', {
+      story_id: storyId,
+      viewer_id: currentUser.id
+    });
+
+    BatchOperations.addToBatch('story_view_increments', {
+      story_uuid: storyId,
+      viewer_uuid: currentUser.id
+    });
+
+    // Also add to background sync queue as fallback
     BackgroundSync.addToQueue({
       type: 'story_view',
       data: {
@@ -119,13 +158,20 @@ export function useOptimizedStories(currentUser: any) {
     // Clear cache and refetch
     cache.delete(`stories_with_profiles_${currentUser?.id || 'anonymous'}`);
     cache.delete(`viewed_stories_${currentUser?.id}`);
+    setLoading(true);
     fetchStories();
   }, [fetchStories, cache, currentUser]);
+
+  const retryFetch = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    fetchStories();
+  }, [fetchStories]);
 
   useEffect(() => {
     fetchStories();
     
-    // Set up realtime subscription
+    // Set up realtime subscription with error handling
     const channel = supabase
       .channel('stories-optimized')
       .on('postgres_changes', {
@@ -135,41 +181,58 @@ export function useOptimizedStories(currentUser: any) {
       }, (payload) => {
         console.log('Story change detected:', payload);
         
-        // Clear cache and refresh
-        cache.delete(`stories_with_profiles_${currentUser?.id || 'anonymous'}`);
-        
-        if (payload.eventType === 'INSERT') {
-          setTimeout(fetchStories, 500);
-        } else if (payload.eventType === 'UPDATE') {
-          setStories(prevStories => 
-            prevStories.map(story => 
-              story.id === payload.new.id 
-                ? { ...story, ...payload.new }
-                : story
-            )
-          );
-        } else if (payload.eventType === 'DELETE') {
-          setStories(prevStories => 
-            prevStories.filter(story => story.id !== payload.old.id)
-          );
+        try {
+          // Clear cache and refresh
+          cache.delete(`stories_with_profiles_${currentUser?.id || 'anonymous'}`);
+          
+          if (payload.eventType === 'INSERT') {
+            // Delay to allow for profile data to be available
+            setTimeout(fetchStories, 1000);
+          } else if (payload.eventType === 'UPDATE') {
+            setStories(prevStories => 
+              prevStories.map(story => 
+                story.id === payload.new.id 
+                  ? { ...story, ...payload.new }
+                  : story
+              )
+            );
+          } else if (payload.eventType === 'DELETE') {
+            setStories(prevStories => 
+              prevStories.filter(story => story.id !== payload.old.id)
+            );
+          }
+        } catch (error) {
+          console.error('Error handling realtime update:', error);
         }
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('Stories realtime subscription active');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Stories realtime subscription error');
+        }
+      });
 
     // Background refresh every 2 minutes
-    const refreshInterval = setInterval(fetchStories, 120000);
+    const refreshInterval = setInterval(() => {
+      if (!loading) {
+        fetchStories();
+      }
+    }, 120000);
 
     return () => {
       supabase.removeChannel(channel);
       clearInterval(refreshInterval);
     };
-  }, [fetchStories, cache, currentUser]);
+  }, [fetchStories, cache, currentUser, loading]);
 
   return {
     stories,
     loading,
+    error,
     viewedStories,
     markStoryAsViewed,
-    refreshStories
+    refreshStories,
+    retryFetch
   };
 }

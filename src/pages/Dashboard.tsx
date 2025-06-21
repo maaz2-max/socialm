@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
 import { CommunityFeed } from '@/components/dashboard/CommunityFeed';
 import { StoriesContainer } from '@/components/stories/StoriesContainer';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
@@ -164,8 +165,18 @@ export function Dashboard() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl mx-auto relative h-[calc(100vh-60px)] page-transition">
-        {/* Stories Container - Fixed at top */}
-        <StoriesContainer />
+        {/* Stories Container - Fixed at top with error boundary */}
+        <ErrorBoundary
+          fallback={
+            <div className="p-4 text-center">
+              <p className="text-sm text-muted-foreground font-pixelated">
+                Stories temporarily unavailable
+              </p>
+            </div>
+          }
+        >
+          <StoriesContainer />
+        </ErrorBoundary>
         
         {/* Scrollable Content Area */}
         <ScrollArea ref={scrollAreaRef} className="h-[calc(100vh-180px)] px-2 scroll-smooth">
@@ -239,8 +250,20 @@ export function Dashboard() {
             </CardContent>
           </Card>
           
-          {/* Feed with key-based refresh for seamless updates */}
-          <CommunityFeed key={feedKey} />
+          {/* Feed with key-based refresh for seamless updates and error boundary */}
+          <ErrorBoundary
+            fallback={
+              <Card className="text-center py-8">
+                <CardContent>
+                  <p className="font-pixelated text-sm text-muted-foreground">
+                    Unable to load posts. Please refresh the page.
+                  </p>
+                </CardContent>
+              </Card>
+            }
+          >
+            <CommunityFeed key={feedKey} />
+          </ErrorBoundary>
         </ScrollArea>
       </div>
     </DashboardLayout>
