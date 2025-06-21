@@ -520,19 +520,19 @@ export function CommunityFeed() {
     return (
       <div className="space-y-4">
         {[1, 2, 3].map(i => (
-          <Card key={i} className="animate-pulse">
+          <Card key={i} className="animate-pulse card-entrance">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full bg-muted" />
+                <div className="h-10 w-10 rounded-full bg-muted story-shimmer" />
                 <div className="flex-1">
-                  <div className="h-4 w-24 bg-muted rounded mb-2" />
-                  <div className="h-3 w-16 bg-muted rounded" />
+                  <div className="h-4 w-24 bg-muted rounded mb-2 story-shimmer" />
+                  <div className="h-3 w-16 bg-muted rounded story-shimmer" />
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="h-4 w-full bg-muted rounded mb-2" />
-              <div className="h-4 w-3/4 bg-muted rounded" />
+              <div className="h-4 w-full bg-muted rounded mb-2 story-shimmer" />
+              <div className="h-4 w-3/4 bg-muted rounded story-shimmer" />
             </CardContent>
           </Card>
         ))}
@@ -541,13 +541,13 @@ export function CommunityFeed() {
   }
 
   return (
-    <div ref={feedRef} className="space-y-4 relative scroll-container">
+    <div ref={feedRef} className="space-y-4 relative scroll-container page-transition">
       {/* Scroll to Top Button - Only show on home page */}
       {isHomePage && showScrollTop && (
         <Button
           onClick={scrollToTop}
           size="icon"
-          className="fixed bottom-20 right-4 z-50 h-10 w-10 rounded-full bg-social-green hover:bg-social-light-green text-white shadow-lg hover:scale-110 transition-all duration-200 pixel-border pixel-shadow"
+          className="fixed bottom-20 right-4 z-50 h-10 w-10 rounded-full bg-social-green hover:bg-social-light-green text-white shadow-lg hover:scale-110 transition-all duration-300 pixel-border pixel-shadow btn-hover gpu-accelerated"
           style={{ 
             fontSize: '8px',
             fontFamily: 'Press Start 2P, cursive'
@@ -558,9 +558,9 @@ export function CommunityFeed() {
       )}
 
       {posts.length === 0 ? (
-        <Card className="text-center py-12">
+        <Card className="text-center py-12 card-entrance">
           <CardContent>
-            <MessageCircle className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+            <MessageCircle className="h-16 w-16 text-muted-foreground mx-auto mb-4 animate-float" />
             <h3 className="font-pixelated text-sm font-medium mb-2">No posts yet</h3>
             <p className="font-pixelated text-xs text-muted-foreground">
               Be the first to share something with the community!
@@ -568,7 +568,7 @@ export function CommunityFeed() {
           </CardContent>
         </Card>
       ) : (
-        posts.map((post) => {
+        posts.map((post, index) => {
           const isLiked = post.likes.some(like => like.user_id === currentUser?.id);
           const isOwner = post.user_id === currentUser?.id;
           const hasComments = post.comments && post.comments.length > 0;
@@ -576,31 +576,35 @@ export function CommunityFeed() {
           const commentBoxVisible = showCommentBox[post.id];
 
           return (
-            <Card key={post.id} className="card-gradient animate-fade-in shadow-lg hover:shadow-xl transition-all duration-200">
+            <Card 
+              key={post.id} 
+              className="card-gradient animate-fade-in shadow-lg hover:shadow-xl transition-all duration-300 card-entrance gpu-accelerated content-visibility-auto"
+              style={{ animationDelay: `${index * 0.1}s` }}
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <Avatar 
-                      className="h-10 w-10 border-2 border-social-green/20 cursor-pointer hover:scale-105 transition-transform"
+                      className="h-10 w-10 border-2 border-social-green/20 cursor-pointer hover:scale-105 transition-transform duration-300 story-avatar gpu-accelerated"
                       onClick={() => handleUserClick(post.user_id, post.profiles?.username)}
                     >
                       {post.profiles?.avatar ? (
-                        <AvatarImage src={post.profiles.avatar} alt={post.profiles.name} />
+                        <AvatarImage src={post.profiles.avatar} alt={post.profiles.name} className="story-image" />
                       ) : (
-                        <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                        <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs story-fallback">
                           {post.profiles?.name?.substring(0, 2).toUpperCase() || 'U'}
                         </AvatarFallback>
                       )}
                     </Avatar>
                     <div>
                       <p 
-                        className="font-pixelated text-xs font-medium cursor-pointer hover:text-social-green transition-colors"
+                        className="font-pixelated text-xs font-medium cursor-pointer hover:text-social-green transition-colors duration-300"
                         onClick={() => handleUserClick(post.user_id, post.profiles?.username)}
                       >
                         {post.profiles?.name}
                       </p>
                       <p 
-                        className="font-pixelated text-xs text-muted-foreground cursor-pointer hover:text-social-green transition-colors"
+                        className="font-pixelated text-xs text-muted-foreground cursor-pointer hover:text-social-green transition-colors duration-300"
                         onClick={() => handleUserClick(post.user_id, post.profiles?.username)}
                       >
                         @{post.profiles?.username} • {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
@@ -611,7 +615,7 @@ export function CommunityFeed() {
                   {isOwner && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted/50">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-muted/50 btn-hover">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -645,13 +649,13 @@ export function CommunityFeed() {
                     <Textarea
                       value={editContent}
                       onChange={(e) => setEditContent(e.target.value)}
-                      className="font-pixelated text-xs"
+                      className="font-pixelated text-xs input-focus"
                     />
                     <div className="flex gap-2">
                       <Button
                         onClick={() => handleEditPost(post.id)}
                         size="sm"
-                        className="bg-social-green hover:bg-social-light-green text-white font-pixelated text-xs"
+                        className="bg-social-green hover:bg-social-light-green text-white font-pixelated text-xs btn-hover"
                       >
                         Save
                       </Button>
@@ -662,7 +666,7 @@ export function CommunityFeed() {
                         }}
                         size="sm"
                         variant="outline"
-                        className="font-pixelated text-xs"
+                        className="font-pixelated text-xs btn-hover"
                       >
                         Cancel
                       </Button>
@@ -679,7 +683,7 @@ export function CommunityFeed() {
                         <img
                           src={post.image_url}
                           alt="Post image"
-                          className="w-full max-h-96 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                          className="w-full max-h-96 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-all duration-300 hover:scale-[1.02] gpu-accelerated"
                           onClick={() => setSelectedImage(post.image_url)}
                         />
                       </div>
@@ -691,11 +695,11 @@ export function CommunityFeed() {
                         size="sm"
                         onClick={() => handleLike(post.id)}
                         disabled={likingPosts[post.id]}
-                        className={`font-pixelated text-xs hover:bg-social-magenta/10 transition-all duration-200 hover-scale ${
+                        className={`font-pixelated text-xs hover:bg-social-magenta/10 transition-all duration-300 btn-hover micro-bounce ${
                           isLiked ? 'text-social-magenta' : 'text-muted-foreground'
                         }`}
                       >
-                        <Heart className={`h-4 w-4 mr-1 ${isLiked ? 'fill-current' : ''}`} />
+                        <Heart className={`h-4 w-4 mr-1 transition-all duration-300 ${isLiked ? 'fill-current scale-110' : ''}`} />
                         {post._count?.likes || 0}
                       </Button>
                       
@@ -703,7 +707,7 @@ export function CommunityFeed() {
                         variant="ghost"
                         size="sm"
                         onClick={() => toggleCommentBox(post.id)}
-                        className="font-pixelated text-xs text-muted-foreground hover:bg-social-blue/10 transition-all duration-200 hover-scale"
+                        className="font-pixelated text-xs text-muted-foreground hover:bg-social-blue/10 transition-all duration-300 btn-hover micro-bounce"
                       >
                         <MessageCircle className="h-4 w-4 mr-1" />
                         {post._count?.comments || 0}
@@ -714,7 +718,7 @@ export function CommunityFeed() {
                           variant="ghost"
                           size="sm"
                           onClick={() => toggleComments(post.id)}
-                          className="font-pixelated text-xs text-muted-foreground hover:bg-social-purple/10 transition-all duration-200 hover-scale"
+                          className="font-pixelated text-xs text-muted-foreground hover:bg-social-purple/10 transition-all duration-300 btn-hover micro-bounce"
                         >
                           {commentsExpanded ? 
                             <ChevronUp className="h-4 w-4 mr-1" /> : 
@@ -727,25 +731,25 @@ export function CommunityFeed() {
                     
                     {/* Comments Section - Collapsible */}
                     {hasComments && commentsExpanded && (
-                      <div className="mt-4 space-y-3 border-t border-border/50 pt-4 animate-fade-in">
+                      <div className="mt-4 space-y-3 border-t border-border/50 pt-4 animate-fade-in scroll-reveal">
                         {post.comments.map((comment: Comment) => (
                           <div key={comment.id} className="flex gap-2">
                             <Avatar 
-                              className="h-6 w-6 cursor-pointer hover:scale-105 transition-transform"
+                              className="h-6 w-6 cursor-pointer hover:scale-105 transition-transform duration-300 story-avatar"
                               onClick={() => handleUserClick(comment.user_id, '')}
                             >
                               {comment.profiles?.avatar ? (
-                                <AvatarImage src={comment.profiles.avatar} />
+                                <AvatarImage src={comment.profiles.avatar} className="story-image" />
                               ) : (
-                                <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                                <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs story-fallback">
                                   {comment.profiles?.name?.substring(0, 2).toUpperCase() || 'U'}
                                 </AvatarFallback>
                               )}
                             </Avatar>
-                            <div className="flex-1 bg-muted/50 rounded-lg p-2">
+                            <div className="flex-1 bg-muted/50 rounded-lg p-2 hover:bg-muted/70 transition-colors duration-300">
                               <div className="flex items-center gap-2 mb-1">
                                 <span 
-                                  className="font-pixelated text-xs font-medium cursor-pointer hover:text-social-green transition-colors"
+                                  className="font-pixelated text-xs font-medium cursor-pointer hover:text-social-green transition-colors duration-300"
                                   onClick={() => handleUserClick(comment.user_id, '')}
                                 >
                                   {comment.profiles?.name}
@@ -776,14 +780,14 @@ export function CommunityFeed() {
                               handleComment(post.id);
                             }
                           }}
-                          className="flex-1 min-h-[60px] max-h-[120px] font-pixelated text-xs resize-none"
+                          className="flex-1 min-h-[60px] max-h-[120px] font-pixelated text-xs resize-none input-focus"
                           disabled={submittingComments[post.id]}
                         />
                         <Button
                           onClick={() => handleComment(post.id)}
                           disabled={!commentInputs[post.id]?.trim() || submittingComments[post.id]}
                           size="sm"
-                          className="bg-social-green hover:bg-social-light-green text-white font-pixelated text-xs self-end hover:scale-105 transition-transform"
+                          className="bg-social-green hover:bg-social-light-green text-white font-pixelated text-xs self-end btn-hover micro-bounce"
                         >
                           <Send className="h-3 w-3" />
                         </Button>
@@ -824,10 +828,10 @@ export function CommunityFeed() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="font-pixelated text-xs">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="font-pixelated text-xs btn-hover">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deletePostId && handleDeletePost(deletePostId)}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-pixelated text-xs"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-pixelated text-xs btn-hover"
             >
               Delete
             </AlertDialogAction>

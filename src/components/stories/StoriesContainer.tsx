@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -23,6 +22,7 @@ interface Story {
     username: string;
     avatar: string | null;
   };
+  viewed?: boolean; // Track if current user has viewed this story
 }
 
 const StoriesContainer = React.memo(() => {
@@ -36,6 +36,7 @@ const StoriesContainer = React.memo(() => {
     showConfirm: boolean;
   }>({ show: false, user: null, showConfirm: false });
   const [loading, setLoading] = useState(true);
+  const [viewedStories, setViewedStories] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
   const fetchStories = useCallback(async () => {
@@ -66,7 +67,29 @@ const StoriesContainer = React.memo(() => {
         return acc;
       }, {});
 
-      setStories(Object.values(groupedStories || {}));
+      const storiesArray = Object.values(groupedStories || {});
+      
+      // Check which stories have been viewed by current user
+      if (currentUser) {
+        const { data: viewData } = await supabase
+          .from('story_views')
+          .select('story_id')
+          .eq('viewer_id', currentUser.id)
+          .in('story_id', storiesArray.map(s => s.id));
+
+        const viewedIds = new Set(viewData?.map(v => v.story_id) || []);
+        setViewedStories(viewedIds);
+
+        // Mark stories as viewed
+        const storiesWithViewStatus = storiesArray.map(story => ({
+          ...story,
+          viewed: viewedIds.has(story.id)
+        }));
+
+        setStories(storiesWithViewStatus);
+      } else {
+        setStories(storiesArray);
+      }
     } catch (error) {
       console.error('Error fetching stories:', error);
       toast({
@@ -77,7 +100,7 @@ const StoriesContainer = React.memo(() => {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, currentUser]);
 
   const getCurrentUser = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -94,50 +117,55 @@ const StoriesContainer = React.memo(() => {
 
   useEffect(() => {
     getCurrentUser();
-    fetchStories();
-    
-    // Set up realtime subscription for stories with more granular updates
-    const channel = supabase
-      .channel('stories-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'stories'
-        },
-        (payload) => {
-          console.log('Story change detected:', payload);
-          // Optimistic update for better performance
-          if (payload.eventType === 'INSERT') {
-            fetchStories();
-          } else if (payload.eventType === 'UPDATE') {
-            setStories(prevStories => 
-              prevStories.map(story => 
-                story.id === payload.new.id 
-                  ? { ...story, ...payload.new }
-                  : story
-              )
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setStories(prevStories => 
-              prevStories.filter(story => story.id !== payload.old.id)
-            );
-          }
-        }
-      )
-      .subscribe();
+  }, [getCurrentUser]);
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [getCurrentUser, fetchStories]);
+  useEffect(() => {
+    if (currentUser) {
+      fetchStories();
+      
+      // Set up realtime subscription for stories with more granular updates
+      const channel = supabase
+        .channel('stories-realtime')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'stories'
+          },
+          (payload) => {
+            console.log('Story change detected:', payload);
+            // Optimistic update for better performance
+            if (payload.eventType === 'INSERT') {
+              fetchStories();
+            } else if (payload.eventType === 'UPDATE') {
+              setStories(prevStories => 
+                prevStories.map(story => 
+                  story.id === payload.new.id 
+                    ? { ...story, ...payload.new }
+                    : story
+                )
+              );
+            } else if (payload.eventType === 'DELETE') {
+              setStories(prevStories => 
+                prevStories.filter(story => story.id !== payload.old.id)
+              );
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [currentUser, fetchStories]);
 
   const handleStoryClick = useCallback(async (story: Story) => {
     setSelectedStory(story);
     
     // Mark story as viewed using the new function
-    if (story.user_id !== currentUser?.id) {
+    if (story.user_id !== currentUser?.id && !viewedStories.has(story.id)) {
       try {
         const { data, error } = await supabase.rpc('increment_story_views', {
           story_uuid: story.id,
@@ -147,20 +175,31 @@ const StoriesContainer = React.memo(() => {
         if (error) {
           console.error('Error tracking story view:', error);
         } else {
-          // Update local state with new view count
+          // Update local state with new view count and mark as viewed
           setStories(prevStories => 
             prevStories.map(s => 
               s.id === story.id 
-                ? { ...s, views_count: data || s.views_count + 1 }
+                ? { ...s, views_count: data || s.views_count + 1, viewed: true }
                 : s
             )
           );
+          
+          // Add to viewed stories set
+          setViewedStories(prev => new Set([...prev, story.id]));
+
+          // Record the view in story_views table
+          await supabase
+            .from('story_views')
+            .insert({
+              story_id: story.id,
+              viewer_id: currentUser?.id
+            });
         }
       } catch (error) {
         console.error('Error tracking story view:', error);
       }
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, viewedStories]);
 
   const userStory = useMemo(() => {
     return stories.find(story => story.user_id === currentUser?.id);
@@ -180,11 +219,11 @@ const StoriesContainer = React.memo(() => {
 
   if (loading) {
     return (
-      <div className="flex gap-2 p-3 overflow-x-auto">
+      <div className="flex gap-3 p-4 overflow-x-auto">
         {[...Array(5)].map((_, i) => (
-          <div key={i} className="flex flex-col items-center gap-1 min-w-[60px]">
-            <div className="w-12 h-12 rounded-full bg-muted animate-pulse" />
-            <div className="w-8 h-2 bg-muted rounded animate-pulse" />
+          <div key={i} className="flex flex-col items-center gap-2 min-w-[70px]">
+            <div className="w-16 h-16 rounded-full bg-muted animate-pulse story-shimmer" />
+            <div className="w-12 h-3 bg-muted rounded animate-pulse" />
           </div>
         ))}
       </div>
@@ -193,19 +232,19 @@ const StoriesContainer = React.memo(() => {
 
   return (
     <>
-      <div className="flex gap-2 p-3 overflow-x-auto bg-background border-b">
+      <div className="flex gap-3 p-4 overflow-x-auto bg-background border-b story-container">
         {/* Add Story Button */}
-        <div className="flex flex-col items-center gap-1 min-w-[60px]">
-          <div className="relative">
-            <Avatar className={`w-12 h-12 border-2 cursor-pointer transition-all duration-200 ${
+        <div className="flex flex-col items-center gap-2 min-w-[70px] story-item">
+          <div className="relative story-avatar-container">
+            <Avatar className={`w-16 h-16 border-3 cursor-pointer transition-all duration-300 story-avatar ${
               userStory 
-                ? 'border-social-green hover:border-social-light-green hover:scale-105' 
-                : 'border-dashed border-social-green hover:border-social-light-green hover:scale-105'
+                ? 'story-border-own hover:scale-105 hover:shadow-lg' 
+                : 'story-border-add hover:scale-105 hover:shadow-lg'
             }`}>
               {currentUser?.avatar ? (
-                <AvatarImage src={currentUser.avatar} alt={currentUser.name} />
+                <AvatarImage src={currentUser.avatar} alt={currentUser.name} className="story-image" />
               ) : (
-                <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-sm story-fallback">
                   {currentUser?.name?.substring(0, 2).toUpperCase() || 'U'}
                 </AvatarFallback>
               )}
@@ -213,12 +252,12 @@ const StoriesContainer = React.memo(() => {
             <Button
               size="icon"
               onClick={handleAddStory}
-              className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-social-green hover:bg-social-light-green text-white transition-all duration-200 hover:scale-110"
+              className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-social-green hover:bg-social-light-green text-white transition-all duration-300 hover:scale-110 story-add-btn shadow-lg"
             >
-              <Plus className="h-2 w-2" />
+              <Plus className="h-3 w-3" />
             </Button>
           </div>
-          <span className="text-xs font-pixelated text-center">
+          <span className="text-xs font-pixelated text-center story-label">
             {userStory ? 'Your Story' : 'Add Story'}
           </span>
         </div>
@@ -226,22 +265,22 @@ const StoriesContainer = React.memo(() => {
         {/* User's own story (if exists) */}
         {userStory && (
           <div
-            className="flex flex-col items-center gap-1 min-w-[60px] cursor-pointer group"
+            className="flex flex-col items-center gap-2 min-w-[70px] cursor-pointer group story-item"
             onClick={() => handleStoryClick(userStory)}
           >
-            <div className="relative">
-              <Avatar className="w-12 h-12 border-2 border-social-green hover:border-social-light-green transition-all duration-200 group-hover:scale-105">
+            <div className="relative story-avatar-container">
+              <Avatar className="w-16 h-16 border-3 story-border-own hover:scale-105 transition-all duration-300 group-hover:shadow-lg story-avatar">
                 {userStory.profiles.avatar ? (
-                  <AvatarImage src={userStory.profiles.avatar} alt={userStory.profiles.name} />
+                  <AvatarImage src={userStory.profiles.avatar} alt={userStory.profiles.name} className="story-image" />
                 ) : (
-                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-sm story-fallback">
                     {userStory.profiles.name.substring(0, 2).toUpperCase()}
                   </AvatarFallback>
                 )}
               </Avatar>
-              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-social-green to-social-blue opacity-20" />
+              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-social-green to-social-blue opacity-10 story-overlay" />
             </div>
-            <span className="text-xs font-pixelated text-center truncate max-w-[60px]">
+            <span className="text-xs font-pixelated text-center truncate max-w-[70px] story-label">
               You
             </span>
           </div>
@@ -251,22 +290,26 @@ const StoriesContainer = React.memo(() => {
         {otherStories.map((story) => (
           <div
             key={story.id}
-            className="flex flex-col items-center gap-1 min-w-[60px] cursor-pointer group"
+            className="flex flex-col items-center gap-2 min-w-[70px] cursor-pointer group story-item"
             onClick={() => handleStoryClick(story)}
           >
-            <div className="relative">
-              <Avatar className="w-12 h-12 border-2 border-social-green hover:border-social-light-green transition-all duration-200 group-hover:scale-105">
+            <div className="relative story-avatar-container">
+              <Avatar className={`w-16 h-16 border-3 hover:scale-105 transition-all duration-300 group-hover:shadow-lg story-avatar ${
+                story.viewed ? 'story-border-viewed' : 'story-border-unviewed'
+              }`}>
                 {story.profiles.avatar ? (
-                  <AvatarImage src={story.profiles.avatar} alt={story.profiles.name} />
+                  <AvatarImage src={story.profiles.avatar} alt={story.profiles.name} className="story-image" />
                 ) : (
-                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
+                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-sm story-fallback">
                     {story.profiles.name.substring(0, 2).toUpperCase()}
                   </AvatarFallback>
                 )}
               </Avatar>
-              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-social-green to-social-blue opacity-20" />
+              {!story.viewed && (
+                <div className="absolute inset-0 rounded-full story-glow animate-pulse" />
+              )}
             </div>
-            <span className="text-xs font-pixelated text-center truncate max-w-[60px]">
+            <span className="text-xs font-pixelated text-center truncate max-w-[70px] story-label">
               {story.profiles.name.split(' ')[0]}
             </span>
           </div>

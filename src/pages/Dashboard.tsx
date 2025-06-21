@@ -163,14 +163,14 @@ export function Dashboard() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-2xl mx-auto relative h-[calc(100vh-60px)]">
+      <div className="max-w-2xl mx-auto relative h-[calc(100vh-60px)] page-transition">
         {/* Stories Container - Fixed at top */}
         <StoriesContainer />
         
         {/* Scrollable Content Area */}
-        <ScrollArea ref={scrollAreaRef} className="h-[calc(100vh-180px)] px-2">
+        <ScrollArea ref={scrollAreaRef} className="h-[calc(100vh-180px)] px-2 scroll-smooth">
           {/* Post Box */}
-          <Card ref={postBoxRef} className="mb-4 card-gradient animate-fade-in shadow-lg border-2 border-social-green/10">
+          <Card ref={postBoxRef} className="mb-4 card-gradient animate-fade-in shadow-lg border-2 border-social-green/10 card-entrance gpu-accelerated">
             <CardContent className="p-4">
               <div className="space-y-4">
                 <Textarea
@@ -178,22 +178,22 @@ export function Dashboard() {
                   value={postContent}
                   onChange={(e) => setPostContent(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  className="w-full min-h-[80px] max-h-[160px] font-pixelated text-sm resize-none focus:ring-2 focus:ring-social-green/20 transition-all duration-200"
+                  className="w-full min-h-[80px] max-h-[160px] font-pixelated text-sm resize-none focus:ring-2 focus:ring-social-green/20 transition-all duration-300 input-focus"
                   disabled={isPosting}
                 />
                 
                 {/* Image Preview */}
                 {imagePreview && (
-                  <div className="relative rounded-lg overflow-hidden border border-social-green/20">
+                  <div className="relative rounded-lg overflow-hidden border border-social-green/20 animate-fade-in">
                     <img
                       src={imagePreview}
                       alt="Preview"
-                      className="max-h-60 w-full object-cover"
+                      className="max-h-60 w-full object-cover transition-all duration-300 hover:scale-[1.02] gpu-accelerated"
                     />
                     <Button
                       variant="destructive"
                       size="icon"
-                      className="absolute top-2 right-2 h-7 w-7 rounded-full shadow-lg hover:scale-105 transition-transform"
+                      className="absolute top-2 right-2 h-7 w-7 rounded-full shadow-lg hover:scale-105 transition-transform duration-300 btn-hover"
                       onClick={removeImage}
                     >
                       <X className="h-3 w-3" />
@@ -214,7 +214,7 @@ export function Dashboard() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="h-9 font-pixelated text-xs hover:bg-social-green/5 transition-colors"
+                      className="h-9 font-pixelated text-xs hover:bg-social-green/5 transition-all duration-300 btn-hover micro-bounce"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={isPosting}
                     >
@@ -229,7 +229,7 @@ export function Dashboard() {
                     onClick={handlePost}
                     disabled={(!postContent.trim() && !selectedImage) || isPosting}
                     size="sm"
-                    className="bg-social-green hover:bg-social-light-green text-white font-pixelated h-9 px-4 hover:scale-105 transition-transform"
+                    className="bg-social-green hover:bg-social-light-green text-white font-pixelated h-9 px-4 transition-all duration-300 btn-hover micro-bounce gpu-accelerated"
                   >
                     <Send className="h-4 w-4 mr-2" />
                     {isPosting ? 'Posting...' : 'Share Post'}
