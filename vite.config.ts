@@ -10,7 +10,10 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
   },
   plugins: [
-    react(),
+    react({
+      // Remove automatic React import injection to prevent conflicts
+      jsxImportSource: undefined,
+    }),
     mode === 'development' &&
     componentTagger(),
   ].filter(Boolean),
@@ -71,7 +74,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   esbuild: {
-    jsxInject: `import React from 'react'`,
+    // Remove automatic React injection to prevent conflicts
     legalComments: 'none',
     target: 'es2020',
     treeShaking: true,

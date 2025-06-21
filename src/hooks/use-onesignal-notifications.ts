@@ -31,6 +31,21 @@ export function useOneSignalNotifications() {
   useEffect(() => {
     const initializeOneSignal = async () => {
       try {
+        // Check if we're in production environment
+        const isProduction = window.location.hostname === 'www.socialchat.site' || 
+                           window.location.hostname === 'socialchat.site';
+        
+        if (!isProduction) {
+          // Development mode - use mock data
+          setOneSignalUser({
+            onesignalId: null,
+            subscribed: false,
+            permission: 'default'
+          });
+          setIsLoading(false);
+          return;
+        }
+
         // Wait for OneSignal to be available
         if (typeof window !== 'undefined' && window.OneSignalInstance) {
           const OneSignal = window.OneSignalInstance;
@@ -48,11 +63,21 @@ export function useOneSignalNotifications() {
           
           console.log('OneSignal initialized:', { subscribed, permission, onesignalId });
         } else {
-          // Wait for OneSignal to load
-          setTimeout(initializeOneSignal, 1000);
+          // OneSignal not available, use fallback
+          setOneSignalUser({
+            onesignalId: null,
+            subscribed: false,
+            permission: 'default'
+          });
         }
       } catch (error) {
         console.error('Error initializing OneSignal:', error);
+        // Fallback to disabled state
+        setOneSignalUser({
+          onesignalId: null,
+          subscribed: false,
+          permission: 'default'
+        });
       } finally {
         setIsLoading(false);
       }
@@ -78,6 +103,31 @@ export function useOneSignalNotifications() {
   // Request notification permission and subscribe
   const requestPermission = useCallback(async () => {
     try {
+      // Check if we're in production
+      const isProduction = window.location.hostname === 'www.socialchat.site' || 
+                         window.location.hostname === 'socialchat.site';
+      
+      if (!isProduction) {
+        // Development mode - show info message
+        toast({
+          title: 'Development Mode',
+          description: 'Push notifications are only available in production. Browser notifications will be used instead.',
+        });
+        
+        // Try to enable browser notifications as fallback
+        if ('Notification' in window) {
+          const permission = await Notification.requestPermission();
+          if (permission === 'granted') {
+            toast({
+              title: 'Browser notifications enabled!',
+              description: 'You will receive browser notifications in development mode.',
+            });
+            return true;
+          }
+        }
+        return false;
+      }
+
       if (!window.OneSignalInstance) {
         throw new Error('OneSignal not initialized');
       }
