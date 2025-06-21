@@ -1,5 +1,5 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
 
@@ -11,8 +11,9 @@ export default defineConfig(({ mode }) => ({
   },
   plugins: [
     react({
-      // Remove automatic React import injection to prevent conflicts
-      jsxImportSource: undefined,
+      plugins: [
+        ['@swc/plugin-optimize-react', {}]
+      ]
     }),
     mode === 'development' &&
     componentTagger(),
@@ -66,15 +67,14 @@ export default defineConfig(({ mode }) => ({
       'react-router-dom',
       '@supabase/supabase-js',
       'date-fns',
-      'zustand',
-      'idb'
+      'zustand'
     ],
     esbuildOptions: {
       target: 'es2020',
     },
   },
   esbuild: {
-    // Remove automatic React injection to prevent conflicts
+    jsxInject: `import React from 'react'`,
     legalComments: 'none',
     target: 'es2020',
     treeShaking: true,

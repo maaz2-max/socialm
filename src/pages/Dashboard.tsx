@@ -6,13 +6,12 @@ import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { Send, Image as ImageIcon, X, Users, Globe, MessageSquareOff } from 'lucide-react';
+import { Send, Image as ImageIcon, X, MessageSquareOff } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 export function Dashboard() {
   const [postContent, setPostContent] = useState('');
@@ -20,7 +19,6 @@ export function Dashboard() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [feedKey, setFeedKey] = useState(0);
-  const [activeTab, setActiveTab] = useState('for-you');
   const [commentsDisabled, setCommentsDisabled] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
@@ -123,40 +121,16 @@ export function Dashboard() {
         imageUrl = data.publicUrl;
       }
 
-      // Prepare post data - only include supported columns
-      const postData: any = {
-        content: postContent.trim(),
-        user_id: user.id,
-        image_url: imageUrl
-      };
-
-      // Try to include comments_disabled if supported
-      try {
-        postData.comments_disabled = commentsDisabled;
-      } catch (error) {
-        console.warn('Comments disabled feature not yet supported in database');
-      }
-
       const { error } = await supabase
         .from('posts')
-        .insert(postData);
+        .insert({
+          content: postContent.trim(),
+          user_id: user.id,
+          image_url: imageUrl,
+          comments_disabled: commentsDisabled
+        });
 
-      if (error) {
-        // If comments_disabled column doesn't exist, try without it
-        if (error.message.includes('comments_disabled') || error.message.includes('column')) {
-          const { error: retryError } = await supabase
-            .from('posts')
-            .insert({
-              content: postContent.trim(),
-              user_id: user.id,
-              image_url: imageUrl
-            });
-          
-          if (retryError) throw retryError;
-        } else {
-          throw error;
-        }
-      }
+      if (error) throw error;
 
       setPostContent('');
       setCommentsDisabled(false);
@@ -174,7 +148,7 @@ export function Dashboard() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to create post. Please try again.'
+        description: 'Failed to create post'
       });
     } finally {
       setIsPosting(false);
@@ -238,24 +212,18 @@ export function Dashboard() {
                   </div>
                 )}
 
-                {/* Post Options */}
-                <div className="flex items-center justify-between gap-3 p-3 bg-muted/30 rounded-lg">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center space-x-2">
-                      <Switch
-                        id="comments-disabled"
-                        checked={commentsDisabled}
-                        onCheckedChange={setCommentsDisabled}
-                        disabled={isPosting}
-                      />
-                      <Label htmlFor="comments-disabled" className="font-pixelated text-xs cursor-pointer">
-                        <div className="flex items-center gap-1">
-                          <MessageSquareOff className="h-3 w-3" />
-                          Disable comments
-                        </div>
-                      </Label>
-                    </div>
-                  </div>
+                {/* Comments Toggle */}
+                <div className="flex items-center space-x-2 p-3 bg-muted/30 rounded-lg">
+                  <Switch
+                    id="comments-disabled"
+                    checked={commentsDisabled}
+                    onCheckedChange={setCommentsDisabled}
+                    disabled={isPosting}
+                  />
+                  <Label htmlFor="comments-disabled" className="font-pixelated text-xs flex items-center gap-2">
+                    <MessageSquareOff className="h-4 w-4" />
+                    Disable comments on this post
+                  </Label>
                 </div>
                 
                 <div className="flex items-center justify-between gap-3 pt-1">
@@ -295,60 +263,21 @@ export function Dashboard() {
               </div>
             </CardContent>
           </Card>
-
-          {/* Feed Tabs */}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-            <TabsList className="grid w-full grid-cols-2 bg-muted/50 rounded-lg p-1">
-              <TabsTrigger 
-                value="for-you" 
-                className="font-pixelated text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all duration-200 flex items-center gap-2"
-              >
-                <Globe className="h-4 w-4" />
-                For You
-              </TabsTrigger>
-              <TabsTrigger 
-                value="friends" 
-                className="font-pixelated text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all duration-200 flex items-center gap-2"
-              >
-                <Users className="h-4 w-4" />
-                Friends
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="for-you" className="mt-4">
-              {/* Community Feed with error boundary - All Posts */}
-              <ErrorBoundary
-                fallback={
-                  <Card className="text-center py-8">
-                    <CardContent>
-                      <p className="font-pixelated text-sm text-muted-foreground">
-                        Unable to load posts. Please refresh the page.
-                      </p>
-                    </CardContent>
-                  </Card>
-                }
-              >
-                <CommunityFeed key={`all-${feedKey}`} feedType="all" />
-              </ErrorBoundary>
-            </TabsContent>
-
-            <TabsContent value="friends" className="mt-4">
-              {/* Community Feed with error boundary - Friends Only */}
-              <ErrorBoundary
-                fallback={
-                  <Card className="text-center py-8">
-                    <CardContent>
-                      <p className="font-pixelated text-sm text-muted-foreground">
-                        Unable to load friends' posts. Please refresh the page.
-                      </p>
-                    </CardContent>
-                  </Card>
-                }
-              >
-                <CommunityFeed key={`friends-${feedKey}`} feedType="friends" />
-              </ErrorBoundary>
-            </TabsContent>
-          </Tabs>
+          
+          {/* Community Feed with error boundary */}
+          <ErrorBoundary
+            fallback={
+              <Card className="text-center py-8">
+                <CardContent>
+                  <p className="font-pixelated text-sm text-muted-foreground">
+                    Unable to load posts. Please refresh the page.
+                  </p>
+                </CardContent>
+              </Card>
+            }
+          >
+            <CommunityFeed key={feedKey} />
+          </ErrorBoundary>
         </ScrollArea>
       </div>
     </DashboardLayout>

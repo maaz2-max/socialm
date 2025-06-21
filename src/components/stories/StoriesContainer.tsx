@@ -41,12 +41,11 @@ const StoriesContainer = React.memo(() => {
 
   const fetchStories = useCallback(async () => {
     try {
-      // First cleanup expired photos - with error handling
+      // First cleanup expired photos
       try {
         await supabase.rpc('cleanup_expired_story_photos');
       } catch (error) {
-        console.warn('Cleanup function not available or failed:', error);
-        // Continue without cleanup if function doesn't exist
+        console.warn('Cleanup function not available:', error);
       }
 
       const { data, error } = await supabase
@@ -187,24 +186,19 @@ const StoriesContainer = React.memo(() => {
         
         setViewedStories(prev => new Set([...prev, story.id]));
 
-        // Background database updates with error handling
-        try {
-          await Promise.all([
-            supabase.rpc('increment_story_views', {
-              story_uuid: story.id,
-              viewer_uuid: currentUser?.id
-            }),
-            supabase
-              .from('story_views')
-              .insert({
-                story_id: story.id,
-                viewer_id: currentUser?.id
-              })
-          ]);
-        } catch (error) {
-          console.warn('Failed to update story views:', error);
-          // Continue without updating views if functions don't exist
-        }
+        // Background database updates
+        await Promise.all([
+          supabase.rpc('increment_story_views', {
+            story_uuid: story.id,
+            viewer_uuid: currentUser?.id
+          }),
+          supabase
+            .from('story_views')
+            .insert({
+              story_id: story.id,
+              viewer_id: currentUser?.id
+            })
+        ]);
         
       } catch (error) {
         console.error('Error tracking story view:', error);

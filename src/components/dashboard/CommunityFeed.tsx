@@ -33,8 +33,7 @@ interface Post {
   image_url: string | null;
   created_at: string;
   user_id: string;
-  comments_disabled?: boolean;
-  visibility?: string;
+  comments_disabled: boolean;
   profiles: {
     name: string;
     username: string;
@@ -68,11 +67,7 @@ interface Comment {
   };
 }
 
-interface CommunityFeedProps {
-  feedType?: 'all' | 'friends';
-}
-
-export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
+export function CommunityFeed() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -90,7 +85,6 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
   const [showCommentBox, setShowCommentBox] = useState<{ [key: string]: boolean }>({});
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [showUserDialog, setShowUserDialog] = useState(false);
-  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   const feedRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const { toast } = useToast();
@@ -143,265 +137,116 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
     }
   };
 
-  // Fetch user's friends
-  const fetchFriends = useCallback(async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: friendsData, error } = await supabase
-        .from('friends')
-        .select('sender_id, receiver_id')
-        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
-        .eq('status', 'accepted');
-
-      if (error) {
-        console.warn('Error fetching friends:', error);
-        return;
-      }
-
-      const friendsSet = new Set<string>();
-      friendsData?.forEach(friendship => {
-        if (friendship.sender_id === user.id) {
-          friendsSet.add(friendship.receiver_id);
-        } else {
-          friendsSet.add(friendship.sender_id);
-        }
-      });
-
-      setFriendIds(friendsSet);
-    } catch (error) {
-      console.error('Error fetching friends:', error);
-    }
-  }, []);
-
-  // Robust post fetching with multiple fallback strategies
-  const fetchPostsRobust = useCallback(async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
-
-      // Strategy 1: Try with all columns
-      try {
-        let query = supabase
-          .from('posts')
-          .select(`
-            id,
-            content,
-            image_url,
-            created_at,
-            user_id,
-            comments_disabled,
-            visibility,
-            profiles:user_id (
-              name,
-              username,
-              avatar
-            ),
-            likes (
-              id,
-              user_id
-            ),
-            comments (
-              id,
-              content,
-              created_at,
-              user_id,
-              profiles:user_id (
-                name,
-                avatar
-              )
-            )
-          `)
-          .order('created_at', { ascending: false });
-
-        // Apply filtering based on feed type
-        if (feedType === 'friends') {
-          const friendIdsArray = Array.from(friendIds);
-          if (friendIdsArray.length === 0) {
-            return [];
-          }
-          query = query.in('user_id', friendIdsArray);
-        }
-
-        const { data, error } = await query;
-
-        if (!error && data) {
-          return data.map(post => ({
-            ...post,
-            comments_disabled: post.comments_disabled || false,
-            visibility: post.visibility || 'public',
-            _count: {
-              likes: post.likes?.length || 0,
-              comments: post.comments?.length || 0
-            }
-          }));
-        }
-      } catch (error) {
-        console.warn('Strategy 1 failed, trying fallback:', error);
-      }
-
-      // Strategy 2: Try without optional columns
-      try {
-        let query = supabase
-          .from('posts')
-          .select(`
-            id,
-            content,
-            image_url,
-            created_at,
-            user_id,
-            profiles:user_id (
-              name,
-              username,
-              avatar
-            ),
-            likes (
-              id,
-              user_id
-            ),
-            comments (
-              id,
-              content,
-              created_at,
-              user_id,
-              profiles:user_id (
-                name,
-                avatar
-              )
-            )
-          `)
-          .order('created_at', { ascending: false });
-
-        // Apply filtering based on feed type
-        if (feedType === 'friends') {
-          const friendIdsArray = Array.from(friendIds);
-          if (friendIdsArray.length === 0) {
-            return [];
-          }
-          query = query.in('user_id', friendIdsArray);
-        }
-
-        const { data, error } = await query;
-
-        if (!error && data) {
-          return data.map(post => ({
-            ...post,
-            comments_disabled: false, // Default value
-            visibility: 'public', // Default value
-            _count: {
-              likes: post.likes?.length || 0,
-              comments: post.comments?.length || 0
-            }
-          }));
-        }
-      } catch (error) {
-        console.warn('Strategy 2 failed, trying minimal fallback:', error);
-      }
-
-      // Strategy 3: Minimal query as last resort
-      try {
-        let query = supabase
-          .from('posts')
-          .select(`
-            id,
-            content,
-            image_url,
-            created_at,
-            user_id
-          `)
-          .order('created_at', { ascending: false });
-
-        // Apply filtering based on feed type
-        if (feedType === 'friends') {
-          const friendIdsArray = Array.from(friendIds);
-          if (friendIdsArray.length === 0) {
-            return [];
-          }
-          query = query.in('user_id', friendIdsArray);
-        }
-
-        const { data, error } = await query;
-
-        if (!error && data) {
-          // Fetch additional data separately
-          const postsWithProfiles = await Promise.all(
-            data.map(async (post) => {
-              // Get profile data
-              const { data: profile } = await supabase
-                .from('profiles')
-                .select('name, username, avatar')
-                .eq('id', post.user_id)
-                .single();
-
-              // Get likes count
-              const { count: likesCount } = await supabase
-                .from('likes')
-                .select('*', { count: 'exact', head: true })
-                .eq('post_id', post.id);
-
-              // Get comments count
-              const { count: commentsCount } = await supabase
-                .from('comments')
-                .select('*', { count: 'exact', head: true })
-                .eq('post_id', post.id);
-
-              return {
-                ...post,
-                comments_disabled: false,
-                visibility: 'public',
-                profiles: profile || { name: 'Unknown User', username: 'unknown', avatar: null },
-                likes: [],
-                comments: [],
-                _count: {
-                  likes: likesCount || 0,
-                  comments: commentsCount || 0
-                }
-              };
-            })
-          );
-
-          return postsWithProfiles;
-        }
-      } catch (error) {
-        console.error('All strategies failed:', error);
-      }
-
-      return [];
-    } catch (error) {
-      console.error('Error in fetchPostsRobust:', error);
-      return [];
-    }
-  }, [feedType, friendIds]);
-
   // Silent background fetch without loading states
   const fetchPostsInBackground = useCallback(async () => {
     try {
-      const formattedPosts = await fetchPostsRobust();
+      const { data, error } = await supabase
+        .from('posts')
+        .select(`
+          id,
+          content,
+          image_url,
+          created_at,
+          user_id,
+          comments_disabled,
+          profiles:user_id (
+            name,
+            username,
+            avatar
+          ),
+          likes (
+            id,
+            user_id
+          ),
+          comments (
+            id,
+            content,
+            created_at,
+            user_id,
+            profiles:user_id (
+              name,
+              avatar
+            )
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedPosts = data?.map(post => ({
+        ...post,
+        _count: {
+          likes: post.likes?.length || 0,
+          comments: post.comments?.length || 0
+        }
+      })) || [];
+
+      // Smoothly update posts without any loading indicators
       setPosts(formattedPosts);
     } catch (error) {
       console.error('Background fetch error:', error);
+      // Don't show error toast for background updates to avoid interrupting user
     }
-  }, [fetchPostsRobust]);
+  }, []);
 
-  // Initial fetch with loading state
+  // Initial fetch with loading state (only on first load)
   const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
-      const formattedPosts = await fetchPostsRobust();
+
+      const { data, error } = await supabase
+        .from('posts')
+        .select(`
+          id,
+          content,
+          image_url,
+          created_at,
+          user_id,
+          comments_disabled,
+          profiles:user_id (
+            name,
+            username,
+            avatar
+          ),
+          likes (
+            id,
+            user_id
+          ),
+          comments (
+            id,
+            content,
+            created_at,
+            user_id,
+            profiles:user_id (
+              name,
+              avatar
+            )
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedPosts = data?.map(post => ({
+        ...post,
+        _count: {
+          likes: post.likes?.length || 0,
+          comments: post.comments?.length || 0
+        }
+      })) || [];
+
       setPosts(formattedPosts);
     } catch (error) {
       console.error('Error fetching posts:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to load posts. Please refresh the page.'
+        description: 'Failed to load posts'
       });
-      setPosts([]);
     } finally {
       setLoading(false);
     }
-  }, [fetchPostsRobust, toast]);
+  }, [toast]);
 
   const getCurrentUser = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -636,9 +481,12 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
       setDeleteCommentId(null);
       setDeleteCommentContext(null);
 
+      const isPostOwner = deleteCommentContext?.isPostOwner;
       toast({
         title: 'Comment deleted',
-        description: 'Your comment has been deleted successfully'
+        description: isPostOwner 
+          ? 'The comment has been removed from your post'
+          : 'Your comment has been deleted successfully'
       });
     } catch (error) {
       console.error('Error deleting comment:', error);
@@ -650,41 +498,27 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
     }
   };
 
-  const toggleCommentsDisabled = async (postId: string) => {
+  const toggleCommentsDisabled = async (postId: string, currentState: boolean) => {
     try {
-      const post = posts.find(p => p.id === postId);
-      if (!post) return;
+      const { error } = await supabase
+        .from('posts')
+        .update({ comments_disabled: !currentState })
+        .eq('id', postId);
 
-      const newCommentsDisabled = !post.comments_disabled;
+      if (error) throw error;
 
-      // Try to update the database, but don't fail if column doesn't exist
-      try {
-        const { error } = await supabase
-          .from('posts')
-          .update({ comments_disabled: newCommentsDisabled })
-          .eq('id', postId);
-
-        if (error && !error.message.includes('column') && !error.message.includes('does not exist')) {
-          throw error;
-        }
-      } catch (dbError) {
-        console.warn('Comments toggle not supported in database yet:', dbError);
-        // Continue with local state update
-      }
-
-      // Update local state
       setPosts(prevPosts =>
-        prevPosts.map(p =>
-          p.id === postId
-            ? { ...p, comments_disabled: newCommentsDisabled }
-            : p
+        prevPosts.map(post =>
+          post.id === postId
+            ? { ...post, comments_disabled: !currentState }
+            : post
         )
       );
 
       toast({
-        title: newCommentsDisabled ? 'Comments disabled' : 'Comments enabled',
-        description: newCommentsDisabled 
-          ? 'Comments have been disabled for this post'
+        title: !currentState ? 'Comments disabled' : 'Comments enabled',
+        description: !currentState 
+          ? 'Comments have been disabled for this post' 
           : 'Comments have been enabled for this post'
       });
     } catch (error) {
@@ -712,57 +546,51 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
 
   useEffect(() => {
     getCurrentUser();
-    fetchFriends();
-  }, [getCurrentUser, fetchFriends]);
+    fetchPosts();
 
-  useEffect(() => {
-    if (currentUser && (feedType === 'all' || friendIds.size > 0)) {
-      fetchPosts();
-      
-      // Set up real-time subscriptions for seamless background updates
-      const postsChannel = supabase
-        .channel('posts-realtime')
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'posts' }, 
-          (payload) => {
-            console.log('Post change detected:', payload);
-            // Use background fetch to avoid loading indicators
-            fetchPostsInBackground();
-          }
-        )
-        .subscribe();
+    // Set up real-time subscriptions for seamless background updates
+    const postsChannel = supabase
+      .channel('posts-realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'posts' }, 
+        (payload) => {
+          console.log('Post change detected:', payload);
+          // Use background fetch to avoid loading indicators
+          fetchPostsInBackground();
+        }
+      )
+      .subscribe();
 
-      const likesChannel = supabase
-        .channel('likes-realtime')
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'likes' }, 
-          (payload) => {
-            console.log('Like change detected:', payload);
-            // Use background fetch to avoid loading indicators
-            fetchPostsInBackground();
-          }
-        )
-        .subscribe();
+    const likesChannel = supabase
+      .channel('likes-realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'likes' }, 
+        (payload) => {
+          console.log('Like change detected:', payload);
+          // Use background fetch to avoid loading indicators
+          fetchPostsInBackground();
+        }
+      )
+      .subscribe();
 
-      const commentsChannel = supabase
-        .channel('comments-realtime')
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'comments' }, 
-          (payload) => {
-            console.log('Comment change detected:', payload);
-            // Use background fetch to avoid loading indicators
-            fetchPostsInBackground();
-          }
-        )
-        .subscribe();
+    const commentsChannel = supabase
+      .channel('comments-realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'comments' }, 
+        (payload) => {
+          console.log('Comment change detected:', payload);
+          // Use background fetch to avoid loading indicators
+          fetchPostsInBackground();
+        }
+      )
+      .subscribe();
 
-      return () => {
-        supabase.removeChannel(postsChannel);
-        supabase.removeChannel(likesChannel);
-        supabase.removeChannel(commentsChannel);
-      };
-    }
-  }, [currentUser, fetchPosts, fetchPostsInBackground, feedType, friendIds]);
+    return () => {
+      supabase.removeChannel(postsChannel);
+      supabase.removeChannel(likesChannel);
+      supabase.removeChannel(commentsChannel);
+    };
+  }, [getCurrentUser, fetchPosts, fetchPostsInBackground]);
 
   useEffect(() => {
     const feedElement = feedRef.current;
@@ -817,14 +645,9 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
         <Card className="text-center py-12 card-entrance">
           <CardContent>
             <MessageCircle className="h-16 w-16 text-muted-foreground mx-auto mb-4 animate-float" />
-            <h3 className="font-pixelated text-sm font-medium mb-2">
-              {feedType === 'friends' ? 'No posts from friends yet' : 'No posts yet'}
-            </h3>
+            <h3 className="font-pixelated text-sm font-medium mb-2">No posts yet</h3>
             <p className="font-pixelated text-xs text-muted-foreground">
-              {feedType === 'friends' 
-                ? 'When your friends share posts, they\'ll appear here!'
-                : 'Be the first to share something with the community!'
-              }
+              Be the first to share something with the community!
             </p>
           </CardContent>
         </Card>
@@ -892,7 +715,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                           Edit Post
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          onClick={() => toggleCommentsDisabled(post.id)}
+                          onClick={() => toggleCommentsDisabled(post.id, post.comments_disabled)}
                           className="font-pixelated text-xs"
                         >
                           <MessageSquareOff className="h-3 w-3 mr-2" />
@@ -972,7 +795,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                         {post._count?.likes || 0}
                       </Button>
                       
-                      {!post.comments_disabled ? (
+                      {!post.comments_disabled && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -982,7 +805,9 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                           <MessageCircle className="h-4 w-4 mr-1" />
                           {post._count?.comments || 0}
                         </Button>
-                      ) : (
+                      )}
+
+                      {post.comments_disabled && (
                         <div className="flex items-center gap-1 text-muted-foreground">
                           <MessageSquareOff className="h-4 w-4" />
                           <span className="font-pixelated text-xs">Comments disabled</span>
@@ -1036,8 +861,8 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                                   </span>
                                 </div>
                                 
-                                {/* Delete comment button - only for comment owner */}
-                                {comment.user_id === currentUser?.id && (
+                                {/* Delete comment button - for comment owner or post owner */}
+                                {(comment.user_id === currentUser?.id || post.user_id === currentUser?.id) && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -1045,7 +870,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                                       setDeleteCommentId(comment.id);
                                       setDeleteCommentContext({
                                         postId: post.id,
-                                        isPostOwner: false
+                                        isPostOwner: post.user_id === currentUser?.id && comment.user_id !== currentUser?.id
                                       });
                                     }}
                                     className="h-5 w-5 hover:bg-destructive/10 hover:text-destructive transition-colors duration-300"
@@ -1144,7 +969,10 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
           <AlertDialogHeader>
             <AlertDialogTitle className="font-pixelated">Delete Comment</AlertDialogTitle>
             <AlertDialogDescription className="font-pixelated text-xs">
-              Are you sure you want to delete this comment? This action cannot be undone.
+              {deleteCommentContext?.isPostOwner 
+                ? "Are you sure you want to remove this comment from your post? This action cannot be undone."
+                : "Are you sure you want to delete this comment? This action cannot be undone."
+              }
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1157,7 +985,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-pixelated text-xs btn-hover"
             >
-              Delete Comment
+              {deleteCommentContext?.isPostOwner ? 'Remove Comment' : 'Delete Comment'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
