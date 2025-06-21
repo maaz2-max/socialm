@@ -6,10 +6,12 @@ import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
-import { Send, Image as ImageIcon, X } from 'lucide-react';
+import { Send, Image as ImageIcon, X, MessageSquareOff } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 export function Dashboard() {
   const [postContent, setPostContent] = useState('');
@@ -17,6 +19,7 @@ export function Dashboard() {
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [feedKey, setFeedKey] = useState(0);
+  const [commentsDisabled, setCommentsDisabled] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const postBoxRef = useRef<HTMLDivElement>(null);
@@ -123,12 +126,14 @@ export function Dashboard() {
         .insert({
           content: postContent.trim(),
           user_id: user.id,
-          image_url: imageUrl
+          image_url: imageUrl,
+          comments_disabled: commentsDisabled
         });
 
       if (error) throw error;
 
       setPostContent('');
+      setCommentsDisabled(false);
       removeImage();
       
       // Force feed refresh
@@ -148,7 +153,7 @@ export function Dashboard() {
     } finally {
       setIsPosting(false);
     }
-  }, [postContent, selectedImage, isPosting, toast, removeImage]);
+  }, [postContent, selectedImage, commentsDisabled, isPosting, toast, removeImage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -160,7 +165,7 @@ export function Dashboard() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl mx-auto relative h-[calc(100vh-60px)] page-transition">
-        {/* Stories Container - Fixed at top with error boundary */}
+        {/* Stories Container - Now scrollable with content */}
         <ErrorBoundary
           fallback={
             <div className="p-4 text-center">
@@ -206,6 +211,20 @@ export function Dashboard() {
                     </Button>
                   </div>
                 )}
+
+                {/* Comments Toggle */}
+                <div className="flex items-center space-x-2 p-3 bg-muted/30 rounded-lg">
+                  <Switch
+                    id="comments-disabled"
+                    checked={commentsDisabled}
+                    onCheckedChange={setCommentsDisabled}
+                    disabled={isPosting}
+                  />
+                  <Label htmlFor="comments-disabled" className="font-pixelated text-xs flex items-center gap-2">
+                    <MessageSquareOff className="h-4 w-4" />
+                    Disable comments on this post
+                  </Label>
+                </div>
                 
                 <div className="flex items-center justify-between gap-3 pt-1">
                   <div className="flex items-center gap-3">

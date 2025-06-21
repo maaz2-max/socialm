@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Heart, MessageCircle, Send, MoreVertical, Edit, Trash2, ArrowUp, ChevronDown, ChevronUp } from 'lucide-react';
+import { Heart, MessageCircle, Send, MoreVertical, Edit, Trash2, ArrowUp, ChevronDown, ChevronUp, MessageSquareOff } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -33,6 +33,7 @@ interface Post {
   image_url: string | null;
   created_at: string;
   user_id: string;
+  comments_disabled: boolean;
   profiles: {
     name: string;
     username: string;
@@ -146,6 +147,7 @@ export function CommunityFeed() {
           image_url,
           created_at,
           user_id,
+          comments_disabled,
           profiles:user_id (
             name,
             username,
@@ -199,6 +201,7 @@ export function CommunityFeed() {
           image_url,
           created_at,
           user_id,
+          comments_disabled,
           profiles:user_id (
             name,
             username,
@@ -490,6 +493,39 @@ export function CommunityFeed() {
     }
   };
 
+  const toggleCommentsDisabled = async (postId: string, currentState: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('posts')
+        .update({ comments_disabled: !currentState })
+        .eq('id', postId);
+
+      if (error) throw error;
+
+      setPosts(prevPosts =>
+        prevPosts.map(post =>
+          post.id === postId
+            ? { ...post, comments_disabled: !currentState }
+            : post
+        )
+      );
+
+      toast({
+        title: !currentState ? 'Comments disabled' : 'Comments enabled',
+        description: !currentState 
+          ? 'Comments have been disabled for this post' 
+          : 'Comments have been enabled for this post'
+      });
+    } catch (error) {
+      console.error('Error toggling comments:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to update comment settings'
+      });
+    }
+  };
+
   const scrollToTop = () => {
     if (feedRef.current) {
       feedRef.current.scrollTo({ top: 0, behavior: 'smooth' });
@@ -674,6 +710,13 @@ export function CommunityFeed() {
                           Edit Post
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          onClick={() => toggleCommentsDisabled(post.id, post.comments_disabled)}
+                          className="font-pixelated text-xs"
+                        >
+                          <MessageSquareOff className="h-3 w-3 mr-2" />
+                          {post.comments_disabled ? 'Enable Comments' : 'Disable Comments'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           onClick={() => setDeletePostId(post.id)}
                           className="font-pixelated text-xs text-destructive"
                         >
@@ -747,15 +790,24 @@ export function CommunityFeed() {
                         {post._count?.likes || 0}
                       </Button>
                       
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleCommentBox(post.id)}
-                        className="font-pixelated text-xs text-muted-foreground hover:bg-social-blue/10 transition-all duration-300 btn-hover micro-bounce"
-                      >
-                        <MessageCircle className="h-4 w-4 mr-1" />
-                        {post._count?.comments || 0}
-                      </Button>
+                      {!post.comments_disabled && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => toggleCommentBox(post.id)}
+                          className="font-pixelated text-xs text-muted-foreground hover:bg-social-blue/10 transition-all duration-300 btn-hover micro-bounce"
+                        >
+                          <MessageCircle className="h-4 w-4 mr-1" />
+                          {post._count?.comments || 0}
+                        </Button>
+                      )}
+
+                      {post.comments_disabled && (
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <MessageSquareOff className="h-4 w-4" />
+                          <span className="font-pixelated text-xs">Comments disabled</span>
+                        </div>
+                      )}
 
                       {hasComments && (
                         <Button
@@ -804,8 +856,8 @@ export function CommunityFeed() {
                                   </span>
                                 </div>
                                 
-                                {/* Delete comment button - only for comment owner */}
-                                {comment.user_id === currentUser?.id && (
+                                {/* Delete comment button - for comment owner or post owner */}
+                                {(comment.user_id === currentUser?.id || post.user_id === currentUser?.id) && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -826,7 +878,7 @@ export function CommunityFeed() {
                     )}
                     
                     {/* Add Comment - Hidden by default, show when comment button is clicked */}
-                    {commentBoxVisible && (
+                    {commentBoxVisible && !post.comments_disabled && (
                       <div className="mt-4 flex gap-2 animate-fade-in">
                         <Textarea
                           placeholder="Write a comment..."
