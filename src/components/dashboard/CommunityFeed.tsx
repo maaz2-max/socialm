@@ -76,6 +76,7 @@ export function CommunityFeed() {
   const [editingPost, setEditingPost] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [deletePostId, setDeletePostId] = useState<string | null>(null);
+  const [deleteCommentId, setDeleteCommentId] = useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [likingPosts, setLikingPosts] = useState<{ [key: string]: boolean }>({});
   const [expandedComments, setExpandedComments] = useState<{ [key: string]: boolean }>({});
@@ -447,6 +448,48 @@ export function CommunityFeed() {
     }
   };
 
+  const handleDeleteComment = async (commentId: string, postId: string) => {
+    try {
+      const { error } = await supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId);
+
+      if (error) throw error;
+
+      // Update posts to remove the deleted comment
+      setPosts(prevPosts =>
+        prevPosts.map(post =>
+          post.id === postId
+            ? {
+                ...post,
+                comments: post.comments.filter(comment => comment.id !== commentId),
+                _count: {
+                  ...post._count,
+                  likes: post._count?.likes || 0,
+                  comments: Math.max(0, (post._count?.comments || 0) - 1)
+                }
+              }
+            : post
+        )
+      );
+
+      setDeleteCommentId(null);
+
+      toast({
+        title: 'Comment deleted',
+        description: 'Your comment has been deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error deleting comment:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to delete comment'
+      });
+    }
+  };
+
   const scrollToTop = () => {
     if (feedRef.current) {
       feedRef.current.scrollTo({ top: 0, behavior: 'smooth' });
@@ -628,14 +671,14 @@ export function CommunityFeed() {
                           className="font-pixelated text-xs"
                         >
                           <Edit className="h-3 w-3 mr-2" />
-                          Edit
+                          Edit Post
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setDeletePostId(post.id)}
                           className="font-pixelated text-xs text-destructive"
                         >
                           <Trash2 className="h-3 w-3 mr-2" />
-                          Delete
+                          Delete Post
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -650,6 +693,7 @@ export function CommunityFeed() {
                       value={editContent}
                       onChange={(e) => setEditContent(e.target.value)}
                       className="font-pixelated text-xs input-focus"
+                      placeholder="Edit your post..."
                     />
                     <div className="flex gap-2">
                       <Button
@@ -657,7 +701,7 @@ export function CommunityFeed() {
                         size="sm"
                         className="bg-social-green hover:bg-social-light-green text-white font-pixelated text-xs btn-hover"
                       >
-                        Save
+                        Save Changes
                       </Button>
                       <Button
                         onClick={() => {
@@ -747,16 +791,30 @@ export function CommunityFeed() {
                               )}
                             </Avatar>
                             <div className="flex-1 bg-muted/50 rounded-lg p-2 hover:bg-muted/70 transition-colors duration-300">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span 
-                                  className="font-pixelated text-xs font-medium cursor-pointer hover:text-social-green transition-colors duration-300"
-                                  onClick={() => handleUserClick(comment.user_id, '')}
-                                >
-                                  {comment.profiles?.name}
-                                </span>
-                                <span className="font-pixelated text-xs text-muted-foreground">
-                                  {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
-                                </span>
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span 
+                                    className="font-pixelated text-xs font-medium cursor-pointer hover:text-social-green transition-colors duration-300"
+                                    onClick={() => handleUserClick(comment.user_id, '')}
+                                  >
+                                    {comment.profiles?.name}
+                                  </span>
+                                  <span className="font-pixelated text-xs text-muted-foreground">
+                                    {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
+                                  </span>
+                                </div>
+                                
+                                {/* Delete comment button - only for comment owner */}
+                                {comment.user_id === currentUser?.id && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setDeleteCommentId(comment.id)}
+                                    className="h-5 w-5 hover:bg-destructive/10 hover:text-destructive transition-colors duration-300"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                )}
                               </div>
                               <p className="font-pixelated text-xs leading-relaxed">
                                 {comment.content}
@@ -818,7 +876,7 @@ export function CommunityFeed() {
         user={selectedUser}
       />
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Post Confirmation Dialog */}
       <AlertDialog open={!!deletePostId} onOpenChange={() => setDeletePostId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -833,7 +891,38 @@ export function CommunityFeed() {
               onClick={() => deletePostId && handleDeletePost(deletePostId)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-pixelated text-xs btn-hover"
             >
-              Delete
+              Delete Post
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Comment Confirmation Dialog */}
+      <AlertDialog open={!!deleteCommentId} onOpenChange={() => setDeleteCommentId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-pixelated">Delete Comment</AlertDialogTitle>
+            <AlertDialogDescription className="font-pixelated text-xs">
+              Are you sure you want to delete this comment? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="font-pixelated text-xs btn-hover">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteCommentId) {
+                  // Find the post that contains this comment
+                  const postWithComment = posts.find(post => 
+                    post.comments.some(comment => comment.id === deleteCommentId)
+                  );
+                  if (postWithComment) {
+                    handleDeleteComment(deleteCommentId, postWithComment.id);
+                  }
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-pixelated text-xs btn-hover"
+            >
+              Delete Comment
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
