@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,18 +9,19 @@ import { Session } from "@supabase/supabase-js";
 import { LoadingScreen } from "@/components/ui/loading-screen";
 import { useTheme } from "@/hooks/use-theme";
 import { FirebaseNotificationProvider } from "@/components/notifications/FirebaseNotificationProvider";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 
-// Pages
-import Index from "./pages/Index";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import Dashboard from "./pages/Dashboard";
-import Friends from "./pages/Friends";
-import Messages from "./pages/Messages";
-import Notifications from "./pages/Notifications";
-import Profile from "./pages/Profile";
-import Settings from "./pages/Settings";
-import NotFound from "./pages/NotFound";
+// Lazy loaded pages for better performance
+const Index = lazy(() => import("./pages/Index"));
+const Login = lazy(() => import("./pages/Login"));
+const Register = lazy(() => import("./pages/Register"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Friends = lazy(() => import("./pages/Friends"));
+const Messages = lazy(() => import("./pages/Messages"));
+const Notifications = lazy(() => import("./pages/Notifications"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Settings = lazy(() => import("./pages/Settings"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Components
 import { AuthGuard } from "./components/common/AuthGuard";
@@ -71,6 +72,7 @@ const App = () => {
           setLoading(false);
           localStorage.clear();
           sessionStorage.clear();
+          queryClient.clear();
         } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           setSession(session);
           setLoading(false);
@@ -84,11 +86,38 @@ const App = () => {
       }
     );
 
+    // Preload critical resources
+    const preloadCriticalResources = async () => {
+      // Preload avatar images for current user
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('avatar')
+            .eq('id', session.user.id)
+            .single();
+            
+          if (profile?.avatar) {
+            const link = document.createElement('link');
+            link.rel = 'preload';
+            link.as = 'image';
+            link.href = profile.avatar;
+            document.head.appendChild(link);
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to preload user avatar:', error);
+      }
+    };
+
+    preloadCriticalResources();
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       console.log('Initial session check:', session?.user?.id);
       setSession(session);
       // Add a small delay to show the loading animation
-      setTimeout(() => setLoading(false), 1500);
+      setTimeout(() => setLoading(false), 1000);
     });
 
     return () => {
@@ -106,76 +135,80 @@ const App = () => {
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter>
-            <Routes>
-              {/* Public Routes */}
-              <Route 
-                path="/" 
-                element={session ? <Navigate to="/dashboard" replace /> : <Index />} 
-              />
-              <Route 
-                path="/login" 
-                element={session ? <Navigate to="/dashboard" replace /> : <Login />} 
-              />
-              <Route 
-                path="/register" 
-                element={session ? <Navigate to="/dashboard" replace /> : <Register />} 
-              />
-              
-              {/* Protected Routes */}
-              <Route 
-                path="/dashboard" 
-                element={
-                  <AuthGuard>
-                    <Dashboard />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/friends" 
-                element={
-                  <AuthGuard>
-                    <Friends />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/messages" 
-                element={
-                  <AuthGuard>
-                    <Messages />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/notifications" 
-                element={
-                  <AuthGuard>
-                    <Notifications />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/profile" 
-                element={
-                  <AuthGuard>
-                    <Profile />
-                  </AuthGuard>
-                } 
-              />
-              <Route 
-                path="/settings" 
-                element={
-                  <AuthGuard>
-                    <Settings />
-                  </AuthGuard>
-                } 
-              />
-              
-              {/* 404 Route */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
+          <ErrorBoundary>
+            <BrowserRouter>
+              <Suspense fallback={<LoadingScreen />}>
+                <Routes>
+                  {/* Public Routes */}
+                  <Route 
+                    path="/" 
+                    element={session ? <Navigate to="/dashboard" replace /> : <Index />} 
+                  />
+                  <Route 
+                    path="/login" 
+                    element={session ? <Navigate to="/dashboard" replace /> : <Login />} 
+                  />
+                  <Route 
+                    path="/register" 
+                    element={session ? <Navigate to="/dashboard" replace /> : <Register />} 
+                  />
+                  
+                  {/* Protected Routes */}
+                  <Route 
+                    path="/dashboard" 
+                    element={
+                      <AuthGuard>
+                        <Dashboard />
+                      </AuthGuard>
+                    } 
+                  />
+                  <Route 
+                    path="/friends" 
+                    element={
+                      <AuthGuard>
+                        <Friends />
+                      </AuthGuard>
+                    } 
+                  />
+                  <Route 
+                    path="/messages" 
+                    element={
+                      <AuthGuard>
+                        <Messages />
+                      </AuthGuard>
+                    } 
+                  />
+                  <Route 
+                    path="/notifications" 
+                    element={
+                      <AuthGuard>
+                        <Notifications />
+                      </AuthGuard>
+                    } 
+                  />
+                  <Route 
+                    path="/profile" 
+                    element={
+                      <AuthGuard>
+                        <Profile />
+                      </AuthGuard>
+                    } 
+                  />
+                  <Route 
+                    path="/settings" 
+                    element={
+                      <AuthGuard>
+                        <Settings />
+                      </AuthGuard>
+                    } 
+                  />
+                  
+                  {/* 404 Route */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
+            </BrowserRouter>
+          </ErrorBoundary>
         </TooltipProvider>
       </FirebaseNotificationProvider>
     </QueryClientProvider>

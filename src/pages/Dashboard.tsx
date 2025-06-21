@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
-import { CommunityFeed } from '@/components/dashboard/CommunityFeed';
-import { StoriesContainer } from '@/components/stories/StoriesContainer';
+import { OptimizedCommunityFeed } from '@/components/dashboard/OptimizedCommunityFeed';
+import { OptimizedStoriesContainer } from '@/components/stories/OptimizedStoriesContainer';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -10,6 +10,9 @@ import { Send, Image as ImageIcon, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { usePerformanceMonitor } from '@/hooks/use-performance-monitor';
+import { useDebouncedCallback } from '@/hooks/use-debounced-callback';
+import { PerformanceUtils } from '@/utils/performance-utils';
 
 export function Dashboard() {
   const [postContent, setPostContent] = useState('');
@@ -21,34 +24,37 @@ export function Dashboard() {
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const postBoxRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { measureRenderTime, measureMemoryUsage } = usePerformanceMonitor();
 
-  // Listen for scroll to top event with improved implementation
+  // Monitor performance
   useEffect(() => {
-    const handleScrollToTop = () => {
-      console.log('Scroll to top event received');
-      if (scrollAreaRef.current) {
-        // Scroll to the very top of the scroll area
-        scrollAreaRef.current.scrollTo({
-          top: 0,
-          behavior: 'smooth'
-        });
-        console.log('Scrolled to top');
-      }
-    };
+    const cleanup = measureRenderTime('Dashboard');
+    measureMemoryUsage();
+    return cleanup;
+  }, [measureRenderTime, measureMemoryUsage]);
 
-    // Listen for both custom event and direct function call
+  // Optimized scroll to top handler
+  const handleScrollToTop = useDebouncedCallback(() => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+    }
+  }, 100);
+
+  useEffect(() => {
+    // Listen for scroll to top events
     window.addEventListener('scrollToTop', handleScrollToTop);
-    
-    // Also expose function globally for direct access
     (window as any).scrollDashboardToTop = handleScrollToTop;
     
     return () => {
       window.removeEventListener('scrollToTop', handleScrollToTop);
       delete (window as any).scrollDashboardToTop;
     };
-  }, []);
+  }, [handleScrollToTop]);
 
-  const handleImageSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -74,9 +80,9 @@ export function Dashboard() {
 
     setSelectedImage(file);
     setImagePreview(URL.createObjectURL(file));
-  };
+  }, [toast]);
 
-  const removeImage = () => {
+  const removeImage = useCallback(() => {
     if (imagePreview) {
       URL.revokeObjectURL(imagePreview);
     }
@@ -85,9 +91,9 @@ export function Dashboard() {
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-  };
+  }, [imagePreview]);
 
-  const handlePost = async () => {
+  const handlePost = useCallback(async () => {
     if ((!postContent.trim() && !selectedImage) || isPosting) return;
 
     try {
@@ -136,7 +142,7 @@ export function Dashboard() {
       setPostContent('');
       removeImage();
       
-      // Force feed refresh by updating key - this will trigger CommunityFeed to re-mount
+      // Force feed refresh
       setFeedKey(prev => prev + 1);
       
       toast({
@@ -153,14 +159,14 @@ export function Dashboard() {
     } finally {
       setIsPosting(false);
     }
-  };
+  }, [postContent, selectedImage, isPosting, toast, removeImage]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handlePost();
     }
-  };
+  }, [handlePost]);
 
   return (
     <DashboardLayout>
@@ -175,7 +181,7 @@ export function Dashboard() {
             </div>
           }
         >
-          <StoriesContainer />
+          <OptimizedStoriesContainer />
         </ErrorBoundary>
         
         {/* Scrollable Content Area */}
@@ -250,7 +256,7 @@ export function Dashboard() {
             </CardContent>
           </Card>
           
-          {/* Feed with key-based refresh for seamless updates and error boundary */}
+          {/* Optimized Feed with error boundary */}
           <ErrorBoundary
             fallback={
               <Card className="text-center py-8">
@@ -262,7 +268,7 @@ export function Dashboard() {
               </Card>
             }
           >
-            <CommunityFeed key={feedKey} />
+            <OptimizedCommunityFeed key={feedKey} />
           </ErrorBoundary>
         </ScrollArea>
       </div>
@@ -270,4 +276,4 @@ export function Dashboard() {
   );
 }
 
-export default Dashboard;
+export default React.memo(Dashboard);
