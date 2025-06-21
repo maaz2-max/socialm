@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -78,6 +78,7 @@ export function CommunityFeed() {
   const [editContent, setEditContent] = useState('');
   const [deletePostId, setDeletePostId] = useState<string | null>(null);
   const [deleteCommentId, setDeleteCommentId] = useState<string | null>(null);
+  const [deleteCommentContext, setDeleteCommentContext] = useState<{ postId: string; isPostOwner: boolean } | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [likingPosts, setLikingPosts] = useState<{ [key: string]: boolean }>({});
   const [expandedComments, setExpandedComments] = useState<{ [key: string]: boolean }>({});
@@ -478,10 +479,14 @@ export function CommunityFeed() {
       );
 
       setDeleteCommentId(null);
+      setDeleteCommentContext(null);
 
+      const isPostOwner = deleteCommentContext?.isPostOwner;
       toast({
         title: 'Comment deleted',
-        description: 'Your comment has been deleted successfully'
+        description: isPostOwner 
+          ? 'The comment has been removed from your post'
+          : 'Your comment has been deleted successfully'
       });
     } catch (error) {
       console.error('Error deleting comment:', error);
@@ -861,7 +866,13 @@ export function CommunityFeed() {
                                   <Button
                                     variant="ghost"
                                     size="icon"
-                                    onClick={() => setDeleteCommentId(comment.id)}
+                                    onClick={() => {
+                                      setDeleteCommentId(comment.id);
+                                      setDeleteCommentContext({
+                                        postId: post.id,
+                                        isPostOwner: post.user_id === currentUser?.id && comment.user_id !== currentUser?.id
+                                      });
+                                    }}
                                     className="h-5 w-5 hover:bg-destructive/10 hover:text-destructive transition-colors duration-300"
                                   >
                                     <Trash2 className="h-3 w-3" />
@@ -950,31 +961,31 @@ export function CommunityFeed() {
       </AlertDialog>
 
       {/* Delete Comment Confirmation Dialog */}
-      <AlertDialog open={!!deleteCommentId} onOpenChange={() => setDeleteCommentId(null)}>
+      <AlertDialog open={!!deleteCommentId} onOpenChange={() => {
+        setDeleteCommentId(null);
+        setDeleteCommentContext(null);
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="font-pixelated">Delete Comment</AlertDialogTitle>
             <AlertDialogDescription className="font-pixelated text-xs">
-              Are you sure you want to delete this comment? This action cannot be undone.
+              {deleteCommentContext?.isPostOwner 
+                ? "Are you sure you want to remove this comment from your post? This action cannot be undone."
+                : "Are you sure you want to delete this comment? This action cannot be undone."
+              }
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="font-pixelated text-xs btn-hover">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                if (deleteCommentId) {
-                  // Find the post that contains this comment
-                  const postWithComment = posts.find(post => 
-                    post.comments.some(comment => comment.id === deleteCommentId)
-                  );
-                  if (postWithComment) {
-                    handleDeleteComment(deleteCommentId, postWithComment.id);
-                  }
+                if (deleteCommentId && deleteCommentContext) {
+                  handleDeleteComment(deleteCommentId, deleteCommentContext.postId);
                 }
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-pixelated text-xs btn-hover"
             >
-              Delete Comment
+              {deleteCommentContext?.isPostOwner ? 'Remove Comment' : 'Delete Comment'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
