@@ -57,8 +57,12 @@ const StoriesContainer = React.memo(() => {
         return;
       }
 
-      // Cleanup expired photos (run in background)
-      supabase.rpc('cleanup_expired_story_photos').catch(console.error);
+      // Cleanup expired photos (run in background) - Fixed RPC call
+      try {
+        await supabase.rpc('cleanup_expired_story_photos');
+      } catch (error) {
+        console.error('Error cleaning up expired stories:', error);
+      }
 
       // Fetch stories with profiles in single query
       const { data, error } = await supabase
