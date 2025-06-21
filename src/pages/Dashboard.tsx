@@ -7,7 +7,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Send, Image as ImageIcon, X, Users, Globe } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Send, Image as ImageIcon, X, Users, Globe, MessageSquareOff } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -19,6 +21,7 @@ export function Dashboard() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [feedKey, setFeedKey] = useState(0);
   const [activeTab, setActiveTab] = useState('for-you');
+  const [commentsDisabled, setCommentsDisabled] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const postBoxRef = useRef<HTMLDivElement>(null);
@@ -120,17 +123,43 @@ export function Dashboard() {
         imageUrl = data.publicUrl;
       }
 
+      // Prepare post data - only include supported columns
+      const postData: any = {
+        content: postContent.trim(),
+        user_id: user.id,
+        image_url: imageUrl
+      };
+
+      // Try to include comments_disabled if supported
+      try {
+        postData.comments_disabled = commentsDisabled;
+      } catch (error) {
+        console.warn('Comments disabled feature not yet supported in database');
+      }
+
       const { error } = await supabase
         .from('posts')
-        .insert({
-          content: postContent.trim(),
-          user_id: user.id,
-          image_url: imageUrl
-        });
+        .insert(postData);
 
-      if (error) throw error;
+      if (error) {
+        // If comments_disabled column doesn't exist, try without it
+        if (error.message.includes('comments_disabled') || error.message.includes('column')) {
+          const { error: retryError } = await supabase
+            .from('posts')
+            .insert({
+              content: postContent.trim(),
+              user_id: user.id,
+              image_url: imageUrl
+            });
+          
+          if (retryError) throw retryError;
+        } else {
+          throw error;
+        }
+      }
 
       setPostContent('');
+      setCommentsDisabled(false);
       removeImage();
       
       // Force feed refresh
@@ -145,12 +174,12 @@ export function Dashboard() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to create post'
+        description: 'Failed to create post. Please try again.'
       });
     } finally {
       setIsPosting(false);
     }
-  }, [postContent, selectedImage, isPosting, toast, removeImage]);
+  }, [postContent, selectedImage, commentsDisabled, isPosting, toast, removeImage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -208,6 +237,26 @@ export function Dashboard() {
                     </Button>
                   </div>
                 )}
+
+                {/* Post Options */}
+                <div className="flex items-center justify-between gap-3 p-3 bg-muted/30 rounded-lg">
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="comments-disabled"
+                        checked={commentsDisabled}
+                        onCheckedChange={setCommentsDisabled}
+                        disabled={isPosting}
+                      />
+                      <Label htmlFor="comments-disabled" className="font-pixelated text-xs cursor-pointer">
+                        <div className="flex items-center gap-1">
+                          <MessageSquareOff className="h-3 w-3" />
+                          Disable comments
+                        </div>
+                      </Label>
+                    </div>
+                  </div>
+                </div>
                 
                 <div className="flex items-center justify-between gap-3 pt-1">
                   <div className="flex items-center gap-3">

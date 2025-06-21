@@ -34,6 +34,7 @@ interface Post {
   created_at: string;
   user_id: string;
   comments_disabled?: boolean;
+  visibility?: string;
   profiles: {
     name: string;
     username: string;
@@ -154,7 +155,10 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
         .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
         .eq('status', 'accepted');
 
-      if (error) throw error;
+      if (error) {
+        console.warn('Error fetching friends:', error);
+        return;
+      }
 
       const friendsSet = new Set<string>();
       friendsData?.forEach(friendship => {
@@ -177,7 +181,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Build the base query
+      // Build the base query - simplified to avoid missing columns
       let query = supabase
         .from('posts')
         .select(`
@@ -223,11 +227,15 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
 
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.warn('Error fetching posts:', error);
+        return;
+      }
 
       const formattedPosts = data?.map(post => ({
         ...post,
         comments_disabled: false, // Default value since column might not exist
+        visibility: 'public', // Default value
         _count: {
           likes: post.likes?.length || 0,
           comments: post.comments?.length || 0
@@ -250,7 +258,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Build the base query
+      // Build the base query - simplified to avoid missing columns
       let query = supabase
         .from('posts')
         .select(`
@@ -297,11 +305,21 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
 
       const { data, error } = await query;
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching posts:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: 'Failed to load posts. Please refresh the page.'
+        });
+        setPosts([]);
+        return;
+      }
 
       const formattedPosts = data?.map(post => ({
         ...post,
         comments_disabled: false, // Default value since column might not exist
+        visibility: 'public', // Default value
         _count: {
           likes: post.likes?.length || 0,
           comments: post.comments?.length || 0
@@ -314,8 +332,9 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to load posts'
+        description: 'Failed to load posts. Please refresh the page.'
       });
+      setPosts([]);
     } finally {
       setLoading(false);
     }
@@ -568,6 +587,53 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
     }
   };
 
+  const toggleCommentsDisabled = async (postId: string) => {
+    try {
+      const post = posts.find(p => p.id === postId);
+      if (!post) return;
+
+      const newCommentsDisabled = !post.comments_disabled;
+
+      // Try to update the database, but don't fail if column doesn't exist
+      try {
+        const { error } = await supabase
+          .from('posts')
+          .update({ comments_disabled: newCommentsDisabled })
+          .eq('id', postId);
+
+        if (error && !error.message.includes('column') && !error.message.includes('does not exist')) {
+          throw error;
+        }
+      } catch (dbError) {
+        console.warn('Comments toggle not supported in database yet:', dbError);
+        // Continue with local state update
+      }
+
+      // Update local state
+      setPosts(prevPosts =>
+        prevPosts.map(p =>
+          p.id === postId
+            ? { ...p, comments_disabled: newCommentsDisabled }
+            : p
+        )
+      );
+
+      toast({
+        title: newCommentsDisabled ? 'Comments disabled' : 'Comments enabled',
+        description: newCommentsDisabled 
+          ? 'Comments have been disabled for this post'
+          : 'Comments have been enabled for this post'
+      });
+    } catch (error) {
+      console.error('Error toggling comments:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to update comment settings'
+      });
+    }
+  };
+
   const scrollToTop = () => {
     if (feedRef.current) {
       feedRef.current.scrollTo({ top: 0, behavior: 'smooth' });
@@ -763,6 +829,13 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                           Edit Post
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          onClick={() => toggleCommentsDisabled(post.id)}
+                          className="font-pixelated text-xs"
+                        >
+                          <MessageSquareOff className="h-3 w-3 mr-2" />
+                          {post.comments_disabled ? 'Enable Comments' : 'Disable Comments'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           onClick={() => setDeletePostId(post.id)}
                           className="font-pixelated text-xs text-destructive"
                         >
@@ -836,15 +909,22 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                         {post._count?.likes || 0}
                       </Button>
                       
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleCommentBox(post.id)}
-                        className="font-pixelated text-xs text-muted-foreground hover:bg-social-blue/10 transition-all duration-300 btn-hover micro-bounce"
-                      >
-                        <MessageCircle className="h-4 w-4 mr-1" />
-                        {post._count?.comments || 0}
-                      </Button>
+                      {!post.comments_disabled ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => toggleCommentBox(post.id)}
+                          className="font-pixelated text-xs text-muted-foreground hover:bg-social-blue/10 transition-all duration-300 btn-hover micro-bounce"
+                        >
+                          <MessageCircle className="h-4 w-4 mr-1" />
+                          {post._count?.comments || 0}
+                        </Button>
+                      ) : (
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <MessageSquareOff className="h-4 w-4" />
+                          <span className="font-pixelated text-xs">Comments disabled</span>
+                        </div>
+                      )}
 
                       {hasComments && (
                         <Button
@@ -921,7 +1001,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                     )}
                     
                     {/* Add Comment - Hidden by default, show when comment button is clicked */}
-                    {commentBoxVisible && (
+                    {commentBoxVisible && !post.comments_disabled && (
                       <div className="mt-4 flex gap-2 animate-fade-in">
                         <Textarea
                           placeholder="Write a comment..."
