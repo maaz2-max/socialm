@@ -33,7 +33,7 @@ interface Post {
   image_url: string | null;
   created_at: string;
   user_id: string;
-  comments_disabled: boolean;
+  comments_disabled?: boolean;
   profiles: {
     name: string;
     username: string;
@@ -177,6 +177,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // Build the base query
       let query = supabase
         .from('posts')
         .select(`
@@ -185,7 +186,6 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
           image_url,
           created_at,
           user_id,
-          comments_disabled,
           profiles:user_id (
             name,
             username,
@@ -227,6 +227,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
 
       const formattedPosts = data?.map(post => ({
         ...post,
+        comments_disabled: false, // Default value since column might not exist
         _count: {
           likes: post.likes?.length || 0,
           comments: post.comments?.length || 0
@@ -249,6 +250,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // Build the base query
       let query = supabase
         .from('posts')
         .select(`
@@ -257,7 +259,6 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
           image_url,
           created_at,
           user_id,
-          comments_disabled,
           profiles:user_id (
             name,
             username,
@@ -300,6 +301,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
 
       const formattedPosts = data?.map(post => ({
         ...post,
+        comments_disabled: false, // Default value since column might not exist
         _count: {
           likes: post.likes?.length || 0,
           comments: post.comments?.length || 0
@@ -566,39 +568,6 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
     }
   };
 
-  const toggleCommentsDisabled = async (postId: string, currentState: boolean) => {
-    try {
-      const { error } = await supabase
-        .from('posts')
-        .update({ comments_disabled: !currentState })
-        .eq('id', postId);
-
-      if (error) throw error;
-
-      setPosts(prevPosts =>
-        prevPosts.map(post =>
-          post.id === postId
-            ? { ...post, comments_disabled: !currentState }
-            : post
-        )
-      );
-
-      toast({
-        title: !currentState ? 'Comments disabled' : 'Comments enabled',
-        description: !currentState 
-          ? 'Comments have been disabled for this post' 
-          : 'Comments have been enabled for this post'
-      });
-    } catch (error) {
-      console.error('Error toggling comments:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to update comment settings'
-      });
-    }
-  };
-
   const scrollToTop = () => {
     if (feedRef.current) {
       feedRef.current.scrollTo({ top: 0, behavior: 'smooth' });
@@ -748,7 +717,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <Avatar 
-                      className={`h-10 w-10 border-2 border-social-green/20 cursor-pointer hover:scale-105 transition-transform duration-300 story-avatar gpu-accelerated`}
+                      className="h-10 w-10 border-2 border-social-green/20 cursor-pointer hover:scale-105 transition-transform duration-300 story-avatar gpu-accelerated"
                       onClick={() => handleUserClick(post.user_id, post.profiles?.username)}
                     >
                       {post.profiles?.avatar ? (
@@ -792,13 +761,6 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                         >
                           <Edit className="h-3 w-3 mr-2" />
                           Edit Post
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => toggleCommentsDisabled(post.id, post.comments_disabled)}
-                          className="font-pixelated text-xs"
-                        >
-                          <MessageSquareOff className="h-3 w-3 mr-2" />
-                          {post.comments_disabled ? 'Enable Comments' : 'Disable Comments'}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => setDeletePostId(post.id)}
@@ -874,24 +836,15 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                         {post._count?.likes || 0}
                       </Button>
                       
-                      {!post.comments_disabled && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => toggleCommentBox(post.id)}
-                          className="font-pixelated text-xs text-muted-foreground hover:bg-social-blue/10 transition-all duration-300 btn-hover micro-bounce"
-                        >
-                          <MessageCircle className="h-4 w-4 mr-1" />
-                          {post._count?.comments || 0}
-                        </Button>
-                      )}
-
-                      {post.comments_disabled && (
-                        <div className="flex items-center gap-1 text-muted-foreground">
-                          <MessageSquareOff className="h-4 w-4" />
-                          <span className="font-pixelated text-xs">Comments disabled</span>
-                        </div>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleCommentBox(post.id)}
+                        className="font-pixelated text-xs text-muted-foreground hover:bg-social-blue/10 transition-all duration-300 btn-hover micro-bounce"
+                      >
+                        <MessageCircle className="h-4 w-4 mr-1" />
+                        {post._count?.comments || 0}
+                      </Button>
 
                       {hasComments && (
                         <Button
@@ -968,7 +921,7 @@ export function CommunityFeed({ feedType = 'all' }: CommunityFeedProps) {
                     )}
                     
                     {/* Add Comment - Hidden by default, show when comment button is clicked */}
-                    {commentBoxVisible && !post.comments_disabled && (
+                    {commentBoxVisible && (
                       <div className="mt-4 flex gap-2 animate-fade-in">
                         <Textarea
                           placeholder="Write a comment..."

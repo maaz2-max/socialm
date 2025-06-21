@@ -37,8 +37,14 @@ export function useEnhancedNotifications() {
             setIsGranted(Notification.permission === 'granted' || oneSignalUser.subscribed);
           }
           
-          // Load initial notifications
-          await fetchNotifications(user.id);
+          // Load initial notifications with error handling
+          try {
+            await fetchNotifications(user.id);
+          } catch (error) {
+            console.warn('Notifications table not available, using fallback');
+            setNotifications([]);
+            setUnreadCount(0);
+          }
         }
       } catch (error) {
         console.error('Error initializing notifications:', error);
@@ -67,9 +73,10 @@ export function useEnhancedNotifications() {
     }
   }, [oneSignalUser.subscribed]);
 
-  // Fetch notifications from database
+  // Fetch notifications from database with error handling
   const fetchNotifications = useCallback(async (userId: string) => {
     try {
+      // Check if notifications table exists
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
@@ -79,18 +86,27 @@ export function useEnhancedNotifications() {
         .limit(50);
 
       if (error) {
-        console.error('Error fetching notifications:', error);
-        return;
+        // If table doesn't exist, return empty array
+        if (error.code === '42P01') {
+          console.warn('Notifications table does not exist yet');
+          setNotifications([]);
+          setUnreadCount(0);
+          return;
+        }
+        throw error;
       }
 
       setNotifications(data || []);
       setUnreadCount(data?.filter(n => !n.read).length || 0);
     } catch (error) {
       console.error('Error fetching notifications:', error);
+      // Fallback to empty state
+      setNotifications([]);
+      setUnreadCount(0);
     }
   }, []);
 
-  // Create notification in database
+  // Create notification in database with error handling
   const createNotification = useCallback(async (
     userId: string, 
     type: string, 
@@ -110,7 +126,14 @@ export function useEnhancedNotifications() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // If table doesn't exist, skip notification creation
+        if (error.code === '42P01') {
+          console.warn('Notifications table does not exist, skipping notification creation');
+          return null;
+        }
+        throw error;
+      }
 
       // Send OneSignal notification if user is subscribed
       if (oneSignalUser.subscribed) {
@@ -157,7 +180,7 @@ export function useEnhancedNotifications() {
     }
   }, [isGranted, oneSignalUser.subscribed]);
 
-  // Mark notification as read
+  // Mark notification as read with error handling
   const markAsRead = useCallback(async (notificationId: string) => {
     try {
       const { error } = await supabase
@@ -165,7 +188,7 @@ export function useEnhancedNotifications() {
         .update({ read: true })
         .eq('id', notificationId);
 
-      if (error) throw error;
+      if (error && error.code !== '42P01') throw error;
 
       setNotifications(prev =>
         prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
@@ -176,7 +199,7 @@ export function useEnhancedNotifications() {
     }
   }, []);
 
-  // Mark all as read
+  // Mark all as read with error handling
   const markAllAsRead = useCallback(async () => {
     if (!currentUser) return;
 
@@ -187,7 +210,7 @@ export function useEnhancedNotifications() {
         .eq('user_id', currentUser.id)
         .eq('read', false);
 
-      if (error) throw error;
+      if (error && error.code !== '42P01') throw error;
 
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       setUnreadCount(0);
@@ -196,7 +219,7 @@ export function useEnhancedNotifications() {
     }
   }, [currentUser]);
 
-  // Delete notification
+  // Delete notification with error handling
   const deleteNotification = useCallback(async (notificationId: string) => {
     try {
       const { error } = await supabase
@@ -204,7 +227,7 @@ export function useEnhancedNotifications() {
         .update({ deleted_at: new Date().toISOString() })
         .eq('id', notificationId);
 
-      if (error) throw error;
+      if (error && error.code !== '42P01') throw error;
 
       setNotifications(prev => prev.filter(n => n.id !== notificationId));
     } catch (error) {
@@ -212,7 +235,7 @@ export function useEnhancedNotifications() {
     }
   }, []);
 
-  // Clear all notifications
+  // Clear all notifications with error handling
   const clearAllNotifications = useCallback(async () => {
     if (!currentUser) return;
 
@@ -223,7 +246,7 @@ export function useEnhancedNotifications() {
         .eq('user_id', currentUser.id)
         .is('deleted_at', null);
 
-      if (error) throw error;
+      if (error && error.code !== '42P01') throw error;
 
       setNotifications([]);
       setUnreadCount(0);
@@ -232,7 +255,7 @@ export function useEnhancedNotifications() {
     }
   }, [currentUser]);
 
-  // Setup real-time subscriptions
+  // Setup real-time subscriptions with error handling
   useEffect(() => {
     if (!currentUser) return;
 
@@ -243,49 +266,55 @@ export function useEnhancedNotifications() {
       });
       channelsRef.current = [];
 
-      // Notifications subscription
-      const notificationsChannel = supabase
-        .channel(`notifications-${currentUser.id}`)
-        .on('postgres_changes', {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${currentUser.id}`
-        }, async (payload) => {
-          const newNotification = payload.new as NotificationData;
-          
-          // Add to state
-          setNotifications(prev => [newNotification, ...prev]);
-          setUnreadCount(prev => prev + 1);
+      // Only set up notifications subscription if table exists
+      try {
+        const notificationsChannel = supabase
+          .channel(`notifications-${currentUser.id}`)
+          .on('postgres_changes', {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${currentUser.id}`
+          }, async (payload) => {
+            const newNotification = payload.new as NotificationData;
+            
+            // Add to state
+            setNotifications(prev => [newNotification, ...prev]);
+            setUnreadCount(prev => prev + 1);
 
-          // Show browser notification only if OneSignal is not handling it
-          if (!oneSignalUser.subscribed) {
-            sendBrowserNotification(getNotificationTitle(newNotification.type), {
-              body: newNotification.content,
-              tag: newNotification.type,
-              data: { id: newNotification.id, type: newNotification.type }
+            // Show browser notification only if OneSignal is not handling it
+            if (!oneSignalUser.subscribed) {
+              sendBrowserNotification(getNotificationTitle(newNotification.type), {
+                body: newNotification.content,
+                tag: newNotification.type,
+                data: { id: newNotification.id, type: newNotification.type }
+              });
+            }
+
+            // Show toast
+            toast({
+              title: getNotificationTitle(newNotification.type),
+              description: newNotification.content,
+              duration: 4000
             });
-          }
+          })
+          .on('postgres_changes', {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${currentUser.id}`
+          }, (payload) => {
+            const updatedNotification = payload.new as NotificationData;
+            setNotifications(prev =>
+              prev.map(n => n.id === updatedNotification.id ? updatedNotification : n)
+            );
+          })
+          .subscribe();
 
-          // Show toast
-          toast({
-            title: getNotificationTitle(newNotification.type),
-            description: newNotification.content,
-            duration: 4000
-          });
-        })
-        .on('postgres_changes', {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${currentUser.id}`
-        }, (payload) => {
-          const updatedNotification = payload.new as NotificationData;
-          setNotifications(prev =>
-            prev.map(n => n.id === updatedNotification.id ? updatedNotification : n)
-          );
-        })
-        .subscribe();
+        channelsRef.current.push(notificationsChannel);
+      } catch (error) {
+        console.warn('Could not set up notifications subscription:', error);
+      }
 
       // Messages subscription for instant notifications
       const messagesChannel = supabase
@@ -451,13 +480,12 @@ export function useEnhancedNotifications() {
         .subscribe();
 
       // Store channels for cleanup
-      channelsRef.current = [
-        notificationsChannel,
+      channelsRef.current.push(
         messagesChannel,
         friendsChannel,
         likesChannel,
         commentsChannel
-      ];
+      );
     };
 
     setupRealtimeSubscriptions();
