@@ -312,7 +312,6 @@ const StoriesContainer = React.memo(() => {
                   </AvatarFallback>
                 )}
               </Avatar>
-              <div className="story-glow absolute inset-0 rounded-full opacity-20" />
             </div>
             <span className="story-label text-xs font-pixelated text-center truncate max-w-[60px]">
               You
@@ -352,19 +351,14 @@ const StoriesContainer = React.memo(() => {
                 )}
               </Avatar>
               
-              {/* Enhanced status indicators */}
+              {/* Simple dot indicators - No animations */}
               <div className="absolute -top-1 -right-1">
                 {!story.viewed ? (
-                  <Circle className="h-3 w-3 fill-social-green text-social-green animate-pulse" />
+                  <Circle className="h-3 w-3 fill-social-green text-social-green" />
                 ) : (
                   <Circle className="h-3 w-3 fill-gray-400 text-gray-400 opacity-60" />
                 )}
               </div>
-              
-              {/* Glow effect for unviewed stories */}
-              {!story.viewed && (
-                <div className="story-glow absolute inset-0 rounded-full" />
-              )}
             </div>
             <span className={`story-label text-xs font-pixelated text-center truncate max-w-[60px] ${
               story.viewed ? 'text-muted-foreground' : 'text-foreground'

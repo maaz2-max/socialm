@@ -301,7 +301,7 @@
   font-weight: 500 !important;
 }
 
-/* ===== INSTAGRAM-LIKE STORY FEATURES ===== */
+/* ===== SIMPLIFIED STORY FEATURES ===== */
 
 /* Story Container */
 .story-container {
@@ -312,7 +312,7 @@
 
 /* Story Items */
 .story-item {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s ease;
   transform-origin: center;
 }
 
@@ -328,7 +328,7 @@
 
 /* Story Avatar */
 .story-avatar {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s ease;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
@@ -336,31 +336,20 @@
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
 }
 
-/* Story Borders - Instagram Style */
+/* Simplified Story Borders - No Gradients */
 .story-border-unviewed {
-  border: 3px solid transparent;
-  background: linear-gradient(45deg, 
-    hsl(var(--social-green)), 
-    hsl(var(--social-blue)), 
-    hsl(var(--social-magenta)), 
-    hsl(var(--social-purple))
-  ) border-box;
-  -webkit-mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: destination-out;
-  mask: linear-gradient(#fff 0 0) padding-box, linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  animation: story-gradient-rotate 3s linear infinite;
+  border: 3px solid hsl(var(--social-green));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);
 }
 
 .story-border-viewed {
   border: 3px solid hsl(var(--muted-foreground) / 0.3);
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .story-border-own {
   border: 3px solid hsl(var(--social-green));
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8), 
-              0 0 20px hsl(var(--social-green) / 0.3);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8);
 }
 
 .story-border-add {
@@ -369,21 +358,6 @@
     hsl(var(--social-green) / 0.1), 
     hsl(var(--social-light-green) / 0.1)
   );
-}
-
-/* Story Glow Effect for Unviewed */
-.story-glow {
-  background: conic-gradient(
-    from 0deg,
-    hsl(var(--social-green)),
-    hsl(var(--social-blue)),
-    hsl(var(--social-magenta)),
-    hsl(var(--social-purple)),
-    hsl(var(--social-green))
-  );
-  opacity: 0.3;
-  filter: blur(8px);
-  animation: story-glow-pulse 2s ease-in-out infinite alternate;
 }
 
 /* Story Image */
@@ -411,7 +385,7 @@
 /* Story Add Button */
 .story-add-btn {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s ease;
 }
 
 .story-add-btn:hover {
@@ -512,16 +486,6 @@
 }
 
 /* ===== KEYFRAME ANIMATIONS ===== */
-
-@keyframes story-gradient-rotate {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-@keyframes story-glow-pulse {
-  0% { opacity: 0.2; }
-  100% { opacity: 0.4; }
-}
 
 @keyframes story-shimmer {
   0% { background-position: -200% 0; }
