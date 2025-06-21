@@ -224,11 +224,11 @@ const StoriesContainer = React.memo(() => {
 
   if (loading) {
     return (
-      <div className="flex gap-2 p-3 overflow-x-auto story-container">
+      <div className="flex gap-2 p-3 overflow-x-auto">
         {[...Array(5)].map((_, i) => (
-          <div key={i} className="flex flex-col items-center gap-1 min-w-[60px] story-item">
-            <div className="w-12 h-12 rounded-full bg-muted story-shimmer" />
-            <div className="w-8 h-2 bg-muted rounded story-shimmer" />
+          <div key={i} className="flex flex-col items-center gap-1 min-w-[60px]">
+            <div className="w-12 h-12 rounded-full bg-muted animate-pulse" />
+            <div className="w-8 h-2 bg-muted rounded animate-pulse" />
           </div>
         ))}
       </div>
@@ -237,40 +237,40 @@ const StoriesContainer = React.memo(() => {
 
   return (
     <>
-      <div className="flex gap-2 p-3 overflow-x-auto bg-background border-b story-container">
+      <div className="flex gap-2 p-3 overflow-x-auto bg-background border-b">
         {/* Add Story Button */}
-        <div className="flex flex-col items-center gap-1 min-w-[60px] story-item">
-          <div className="relative story-avatar-container">
-            {/* Glow effect for add story */}
-            <div className="absolute inset-0 rounded-full story-glow opacity-20"></div>
-            
-            <Avatar className="w-12 h-12 story-avatar story-border-add cursor-pointer transition-all duration-300 hover:scale-105 gpu-accelerated">
+        <div className="flex flex-col items-center gap-1 min-w-[60px]">
+          <div className="relative">
+            <Avatar className={`w-12 h-12 border-2 cursor-pointer transition-all duration-200 ${
+              userStory 
+                ? 'border-social-green hover:border-social-light-green hover:scale-105' 
+                : 'border-dashed border-social-green hover:border-social-light-green hover:scale-105'
+            }`}>
               {currentUser?.avatar ? (
                 <AvatarImage 
                   src={currentUser.avatar} 
                   alt={currentUser.name} 
-                  className="story-image"
+                  className="object-cover w-full h-full"
                   onError={(e) => {
                     console.warn('Current user avatar failed to load');
                     e.currentTarget.style.display = 'none';
                   }}
                 />
               ) : (
-                <AvatarFallback className="story-fallback">
+                <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
                   {currentUser?.name?.substring(0, 2).toUpperCase() || 'U'}
                 </AvatarFallback>
               )}
             </Avatar>
-            
             <Button
               size="icon"
               onClick={handleAddStory}
-              className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full story-add-btn"
+              className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full bg-social-green hover:bg-social-light-green text-white transition-all duration-200 hover:scale-110"
             >
               <Plus className="h-2 w-2" />
             </Button>
           </div>
-          <span className="text-xs font-pixelated text-center story-label">
+          <span className="text-xs font-pixelated text-center">
             {userStory ? 'Your Story' : 'Add Story'}
           </span>
         </div>
@@ -278,35 +278,30 @@ const StoriesContainer = React.memo(() => {
         {/* User's own story (if exists) */}
         {userStory && (
           <div
-            className="flex flex-col items-center gap-1 min-w-[60px] cursor-pointer group story-item"
+            className="flex flex-col items-center gap-1 min-w-[60px] cursor-pointer group"
             onClick={() => handleStoryClick(userStory)}
           >
-            <div className="relative story-avatar-container">
-              {/* Own story glow effect */}
-              <div className="absolute inset-0 rounded-full story-glow opacity-30"></div>
-              
-              <Avatar className="w-12 h-12 story-avatar story-border-own cursor-pointer transition-all duration-300 group-hover:scale-105 gpu-accelerated">
+            <div className="relative">
+              <Avatar className="w-12 h-12 border-2 border-social-green hover:border-social-light-green transition-all duration-200 group-hover:scale-105">
                 {userStory.profiles?.avatar ? (
                   <AvatarImage 
                     src={userStory.profiles.avatar} 
                     alt={userStory.profiles.name} 
-                    className="story-image"
+                    className="object-cover w-full h-full"
                     onError={(e) => {
                       console.warn('User story avatar failed to load');
                       e.currentTarget.style.display = 'none';
                     }}
                   />
                 ) : (
-                  <AvatarFallback className="story-fallback">
+                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
                     {userStory.profiles?.name?.substring(0, 2).toUpperCase() || 'U'}
                   </AvatarFallback>
                 )}
               </Avatar>
-              
-              {/* Story overlay for own story */}
-              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-social-green to-social-blue opacity-10 story-overlay" />
+              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-social-green to-social-blue opacity-20" />
             </div>
-            <span className="text-xs font-pixelated text-center truncate max-w-[60px] story-label">
+            <span className="text-xs font-pixelated text-center truncate max-w-[60px]">
               You
             </span>
           </div>
@@ -316,48 +311,45 @@ const StoriesContainer = React.memo(() => {
         {otherStories.map((story) => (
           <div
             key={story.id}
-            className="flex flex-col items-center gap-1 min-w-[60px] cursor-pointer group story-item"
+            className="flex flex-col items-center gap-1 min-w-[60px] cursor-pointer group"
             onClick={() => handleStoryClick(story)}
           >
-            <div className="relative story-avatar-container">
-              {/* Unviewed story glow effect */}
-              {!story.viewed && (
-                <div className="absolute inset-0 rounded-full story-glow"></div>
-              )}
-              
-              <Avatar className={`w-12 h-12 story-avatar cursor-pointer transition-all duration-300 group-hover:scale-105 gpu-accelerated ${
-                story.viewed ? 'story-border-viewed' : 'story-border-unviewed'
+            <div className="relative">
+              <Avatar className={`w-12 h-12 border-2 hover:scale-105 transition-all duration-200 group-hover:shadow-lg ${
+                story.viewed ? 'border-gray-400' : 'border-social-green'
               }`}>
                 {story.profiles?.avatar ? (
                   <AvatarImage 
                     src={story.profiles.avatar} 
                     alt={story.profiles.name} 
-                    className="story-image"
+                    className="object-cover w-full h-full"
                     onError={(e) => {
                       console.warn('Story avatar failed to load for user:', story.profiles?.name);
                       e.currentTarget.style.display = 'none';
                     }}
                   />
                 ) : (
-                  <AvatarFallback className="story-fallback">
+                  <AvatarFallback className="bg-social-dark-green text-white font-pixelated text-xs">
                     {story.profiles?.name?.substring(0, 2).toUpperCase() || 'U'}
                   </AvatarFallback>
                 )}
               </Avatar>
               
-              {/* Story status indicator */}
-              <div className="absolute -top-1 -right-1">
-                <Circle className={`h-3 w-3 transition-all duration-300 ${
-                  story.viewed 
-                    ? 'fill-gray-400 text-gray-400 opacity-60' 
-                    : 'fill-social-green text-social-green animate-pulse'
-                }`} />
-              </div>
+              {/* Unviewed indicator - grey dot for unseen stories */}
+              {!story.viewed && (
+                <div className="absolute -top-1 -right-1">
+                  <Circle className="h-3 w-3 fill-social-green text-social-green" />
+                </div>
+              )}
               
-              {/* Story overlay effect */}
-              <div className="absolute inset-0 rounded-full bg-black opacity-0 group-hover:opacity-10 transition-opacity duration-300 story-overlay" />
+              {/* Viewed indicator - grey dot for seen stories */}
+              {story.viewed && (
+                <div className="absolute -top-1 -right-1">
+                  <Circle className="h-3 w-3 fill-gray-400 text-gray-400" />
+                </div>
+              )}
             </div>
-            <span className="text-xs font-pixelated text-center truncate max-w-[60px] story-label">
+            <span className="text-xs font-pixelated text-center truncate max-w-[60px]">
               {story.profiles?.name?.split(' ')[0] || 'User'}
             </span>
           </div>
