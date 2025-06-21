@@ -669,7 +669,7 @@ export function CommunityFeed() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <Avatar 
-                      className="h-10 w-10 border-2 border-social-green/20 cursor-pointer hover:scale-105 transition-transform duration-300 story-avatar gpu-accelerated"
+                      className={`h-10 w-10 border-2 border-social-green/20 cursor-pointer hover:scale-105 transition-transform duration-300 story-avatar gpu-accelerated`}
                       onClick={() => handleUserClick(post.user_id, post.profiles?.username)}
                     >
                       {post.profiles?.avatar ? (
@@ -861,8 +861,8 @@ export function CommunityFeed() {
                                   </span>
                                 </div>
                                 
-                                {/* Delete comment button - for comment owner or post owner */}
-                                {(comment.user_id === currentUser?.id || post.user_id === currentUser?.id) && (
+                                {/* Delete comment button - only for comment owner */}
+                                {comment.user_id === currentUser?.id && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -870,7 +870,7 @@ export function CommunityFeed() {
                                       setDeleteCommentId(comment.id);
                                       setDeleteCommentContext({
                                         postId: post.id,
-                                        isPostOwner: post.user_id === currentUser?.id && comment.user_id !== currentUser?.id
+                                        isPostOwner: false
                                       });
                                     }}
                                     className="h-5 w-5 hover:bg-destructive/10 hover:text-destructive transition-colors duration-300"
@@ -969,10 +969,7 @@ export function CommunityFeed() {
           <AlertDialogHeader>
             <AlertDialogTitle className="font-pixelated">Delete Comment</AlertDialogTitle>
             <AlertDialogDescription className="font-pixelated text-xs">
-              {deleteCommentContext?.isPostOwner 
-                ? "Are you sure you want to remove this comment from your post? This action cannot be undone."
-                : "Are you sure you want to delete this comment? This action cannot be undone."
-              }
+              Are you sure you want to delete this comment? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -985,7 +982,7 @@ export function CommunityFeed() {
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-pixelated text-xs btn-hover"
             >
-              {deleteCommentContext?.isPostOwner ? 'Remove Comment' : 'Delete Comment'}
+              Delete Comment
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
