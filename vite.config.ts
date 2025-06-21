@@ -10,11 +10,7 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
   },
   plugins: [
-    react({
-      plugins: [
-        ['@swc/plugin-optimize-react', {}]
-      ]
-    }),
+    react(),
     mode === 'development' &&
     componentTagger(),
   ].filter(Boolean),
